@@ -1,19 +1,41 @@
 {
   "name": "primeplot-back",
-  "version": "1.0.0",
-  "description": "",
-  "main": "server.js",
-  "scripts": {
-    "start": "node server.js",
-    "dev": "nodemon server.js"
-  },
-  "keywords": [],
+  "version": "0.1.0",
+  "private": true,
+  "description": "PrimePlot — Real Estate Management & CRM API",
   "type": "module",
-  "devDependencies": {
-    "nodemon": "^3.1.14"
+  "main": "server.js",
+  "engines": {
+    "node": ">=24"
+  },
+  "imports": {
+    "#config/*": "./src/config/*",
+    "#shared/*": "./src/shared/*",
+    "#modules/*": "./src/modules/*"
+  },
+  "scripts": {
+    "dev": "node --watch server.js",
+    "start": "node server.js",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "check": "node scripts/check-syntax.js"
   },
   "dependencies": {
-    "dotenv": "^18.0.7",
-    "express": "^5.3.0"
+    "compression": "^1.8.2",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.6",
+    "express": "^5.3.0",
+    "helmet": "^8.3.0",
+    "mongoose": "^9.11.1",
+    "pino": "^10.4.0",
+    "pino-http": "^11.0.0",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.12.0",
+    "globals": "^17.13.0",
+    "pino-pretty": "^13.2.0",
+    "prettier": "^3.9.10"
   }
 }
