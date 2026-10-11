@@ -49,7 +49,12 @@ router.patch(
         phone: str(20),
         address: str(500),
         addressBn: str(500),
-        website: z.url().max(200).nullable().optional(),
+        // http(s) only — the value is rendered as a link on receipts and the public site.
+        website: z
+          .url({ protocol: /^https?$/ })
+          .max(200)
+          .nullable()
+          .optional(),
         tradeLicenseNo: str(60),
         rehabMemberNo: str(60),
         logoMediaId: zid.nullable().optional(),

@@ -147,7 +147,7 @@ Revokes one of **your own** sessions (`404` otherwise). Revoking the current one
 `200 { …org, features }`
 
 ### `PATCH /org` 🔒 `org:update`
-Body (any of): `name, nameBn, legalName, email, phone, address, addressBn, website, tradeLicenseNo, rehabMemberNo, logoMediaId, settings: { defaultLocale, fiscalYearStartMonth }` → `200 org`. Nullable fields accept `null`.
+Body (any of): `name, nameBn, legalName, email, phone, address, addressBn, website, tradeLicenseNo, rehabMemberNo, logoMediaId, settings: { defaultLocale, fiscalYearStartMonth }` → `200 org`. Nullable fields accept `null`. `website` must be an `http(s)://` URL (it is rendered as a link).
 
 ---
 

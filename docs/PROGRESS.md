@@ -9,9 +9,9 @@
 
 | | |
 |---|---|
-| **Current phase** | F1: Shell, i18n & Auth — **step 1 (design system, i18n, primitives, API client) done; awaiting owner review of `/dev/design`** |
-| **Last completed** | F1 step 1 (2026-10-12); B1 backend (76/95 tests passed on owner PC, auth suite re-run pending after the download-timeout fix) |
-| **Next step** | Owner: review `/bn/dev/design` + `/en/dev/design` → F1 step 2: auth pages, proxy auth guard + refresh, dashboard & portal shells |
+| **Current phase** | F1b: Admin screens — **code complete**; owner verification pending |
+| **Last completed** | F1b Team / Audit log / Company settings (2026-10-12) |
+| **Next step** | Owner: verify F1 + F1b against the real backend → B2 Projects & Inventory (backend) |
 | **Blocker** | None. D1/D3/D4 still open (not blocking F1/B2) |
 
 ---
@@ -65,8 +65,13 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] `lib/placeholders.js` + `<SmartImage>` (Unsplash/Pexels fallback, deterministic per entity)
 - [x] UI primitives (Button, Field, Input/Textarea, Select, Checkbox, Drawer, Table, Tag, StatusChip, Toast, Empty/Error/Skeleton)
 - [x] API client (server: cookie forwarding; client: fetch + single-flight refresh-on-401), React Query provider
-- [ ] Login / forgot / reset pages, `proxy.js` route guards by role
-- [ ] Dashboard shell (sidebar, topbar, command palette), Portal shell
+- [x] Login / forgot / reset / setup-account pages, `proxy.js` route guards by role (+ `/session` silent-refresh hop)
+- [x] Dashboard shell (sidebar, topbar, command palette), Portal shell (mobile tab bar), account page (profile, password, sessions)
+
+### F1b: Admin screens (Frontend) — backend ready since B1
+- [x] Team: list / search / filter / invite / edit role & status / resend invite (`/users`)
+- [x] Audit log viewer with area + date filters, expandable diffs, cursor "load more" (`/audit`)
+- [x] Organization settings (identity, contact, registration, logo upload via `/media`, fiscal year, default language)
 
 ### B2: Projects & Inventory (Backend)
 - [ ] Project → Block/Building (Sector/Road) → Floor → Unit models (apartment + plot)
@@ -79,6 +84,7 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 
 ### F2: Public site (Frontend)
 - [ ] Home, projects listing + filters
+  - Owner note (2026-10-12): the home page hero will use a **background video** — plan for a poster image, muted autoplay + `playsinline`, `prefers-reduced-motion` / Save-Data fallback to the poster, and video upload support in media (or an external CDN/YouTube source) — confirm source before F2
 - [ ] Project detail (gallery/Embla, map, amenities)
 - [ ] Floor plan & master plan viewer (live status chip)
 - [ ] Unit detail, installment/EMI calculator
@@ -152,6 +158,22 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 ---
 
 ## 📝 Session Log (newest first)
+
+### 2026-10-12 (4): F1b — admin screens
+- **Team** (`/dashboard/users`, `users:read`; edit `users:manage`): debounced search, role/status filters, offset pagination, invite drawer (duplicate email → field error), edit drawer sends only changed fields; own role/status locked; resend invite for invited members; SELF_CHANGE / LAST_ADMIN / INVITE_PENDING shown inline.
+- **Audit log** (`/dashboard/audit`, `audit:read`): area filter (auth/user/org/media/system), Dhaka-time date range, translated action labels, expandable from→to diff (secret fields show "changed"), meta + request id, infinite "load older".
+- **Company settings** (`/dashboard/settings`, `org:update`): sections for identity (logo upload → public WebP media), contact, registration (trade licence, REHAB), preferences (default language, fiscal-year month with a receipt-numbering warning); sticky save bar, discard, only dirty fields are sent; refreshes `/auth/me` org data.
+- New shared pieces: `PageHeader`, `RequirePermission` (calm no-access panel), `Pagination`, `useDebounced`. Table wrapper made `relative` (fixed a 473px mobile overflow from an `sr-only` header).
+- **Backend:** org `website` now accepts only `http(s)` URLs (blocked `javascript:` links on receipts/public site). API.md updated.
+- **Verified** against the mock API: 8 Playwright flows (list/search, invite duplicate + success, self-edit lock, audit expand + load more, website validation + save, Bangla pages, 390px widths). ESLint, esbuild, `next build` clean.
+
+### 2026-10-12 (3): F1 step 2 — auth UI, route guards, shells
+- **Auth pages** (`app/[locale]/(auth)/`): login (lockout minutes, disabled, expired/reset/setup notices, `next` redirect), forgot (same answer for every email, resend), reset & setup-account (one shared `TokenPasswordForm`: token read once then stripped from the URL, `referrer: no-referrer`, token pre-checked via `/auth/token/inspect`, weak password never burns the link). react-hook-form + zod 4.
+- **proxy.js**: next-intl first, then area guard. Reads the access-token claims unsigned (routing only; API verifies). No/expired access cookie → `/session?next=…` (the refresh cookie is path-scoped to `/api/v1/auth`, so only the browser can refresh) → back to `next` or to login. Client ↔ staff areas can't be crossed; guest pages bounce signed-in users home. `safeNext()` blocks open redirects (`//evil`, schemes, backslashes, cross-area).
+- **Shells**: dashboard (olive sidebar filtered by permissions, topbar, Ctrl/⌘K command palette, user menu, mobile off-canvas nav), portal (mobile bottom tab bar). Unbuilt modules open a "coming in phase X" page instead of 404. Overview = honest setup checklist (no invented stats). Account page: profile, change password, sessions with per-device sign-out and sign-out-everywhere.
+- Session data loads client-side (`useSession` → `/auth/me`), gated until hydration to avoid streamed-boundary mismatches; `pp:session-expired` → login with `reason=expired`.
+- **Verified in sandbox** against a mock API: 13 E2E flows (Playwright) — unauth redirect via /session, wrong password, login, palette navigation, account page, silent refresh after the access cookie is deleted, guest-page bounce, logout, client blocked from dashboard, portal on 390px, reset token stripped + invalid link, open-redirect blocked, lockout message. `next build` (fonts stubbed), ESLint, esbuild — clean. Fixed during testing: `usePathname` outside Suspense on the catch-all route; hydration mismatch from shared query cache; malformed tokens hanging on a skeleton.
+- Owner note: home hero will be a video (recorded under F2).
 
 ### 2026-10-12 (2): F1 step 1 — design system, i18n, primitives
 - Owner supplied 3 references + design rules; approved the system (palette with contrast fixes, type roles, Noto Serif Bengali for BN display, new status colours, mono for codes/money). Recorded in ARCHITECTURE §7.
