@@ -245,7 +245,7 @@ primeplot-back/
   - Palette: canvas `#F9F8F6`, surface `#FFFFFF` with `#E5E3DF` hairlines, ink `#1C1D1A` / muted `#666861`, primary olive charcoal `#2D3228`, sage accent `#6B705C`, form-control borders `#8F8C82` (3:1). All text pairs pass WCAG AA.
   - Unit status: available `#3F7D58`, held `#8A6A1C`, booked `#3E6A8A`, allotted/registered/handed over `#7A4E3A`, blocked `#8C8A82` + hatch. Always with a text label.
   - Type: Playfair Display (display, ≥28px only) + Noto Serif Bengali for Bangla display; Plus Jakarta Sans for all UI/body; Hind Siliguri for Bangla UI/body; Geist Mono for unit codes, receipt numbers and money columns.
-  - Shape: radii 2px (tags, images) / 4px (controls) / 6px (cards). No pills except avatars and filter chips. Eyebrow labels with a leading rule, hairline dividers, faint blueprint grid.
+  - Shape: radii 2px (tags, images) / 4px (controls) / 6px (cards). No pills except avatars and filter chips. Eyebrow labels (letter-spaced, no leading rule — owner rejected the rule as AI-template), hairline dividers, faint blueprint grid.
   - Motion: short ease-out-quint transitions; GSAP only for public-site scroll; `prefers-reduced-motion` respected.
   - Tokens live in `styles/theme.css`; the living style guide is `/[locale]/dev/design` (dev only).
 - **i18n routing** *(F1)*: locale is a root URL segment (`/bn/…`, `/en/…`, default `bn`) via next-intl + `next/root-params`, remembered in the `pp_locale` cookie. Reason: with `cacheComponents`, a cookie-driven `<html lang>` would make every page request-bound; URL locales also give crawlable hreflang pages.
