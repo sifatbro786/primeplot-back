@@ -9,9 +9,9 @@
 
 | | |
 |---|---|
-| **Current phase** | B1: Core platform — **code complete; DB integration tests pending on the owner's PC** |
-| **Last completed** | B1 code (auth, RBAC, users, org, audit, media, email, job scheduler) (2026-10-12) |
-| **Next step** | Owner: `npm install` → `npm run seed` → `npm test` (see Session Log 2026-10-12) → then F1 (Shell, i18n & Auth UI) |
+| **Current phase** | F1: Shell, i18n & Auth — **step 1 (design system, i18n, primitives, API client) done; awaiting owner review of `/dev/design`** |
+| **Last completed** | F1 step 1 (2026-10-12); B1 backend (76/95 tests passed on owner PC, auth suite re-run pending after the download-timeout fix) |
+| **Next step** | Owner: review `/bn/dev/design` + `/en/dev/design` → F1 step 2: auth pages, proxy auth guard + refresh, dashboard & portal shells |
 | **Blocker** | None. D1/D3/D4 still open (not blocking F1/B2) |
 
 ---
@@ -60,10 +60,11 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] Extras: account invite/setup flow, session list/revoke, admin user management, private-file streaming, media purge job
 
 ### F1: Shell, i18n & Auth (Frontend)
-- [ ] next-intl setup, BN/EN toggle (cookie-based), number/currency formatters (lakh-crore, bn digits)
-- [ ] `lib/placeholders.js` + `<SmartImage>` (Unsplash/Pexels fallback, deterministic per entity)
-- [ ] UI primitives (Button, Field, Select, Sheet/Drawer, Table, Tag, Toast, Empty/Error states)
-- [ ] API client (server: cookie forwarding; client: fetch + refresh-on-401), React Query provider
+- [x] Design system: tokens (`styles/theme.css`), fonts (Playfair, Plus Jakarta Sans, Hind Siliguri, Noto Serif Bengali, Geist Mono), living style guide `/[locale]/dev/design`
+- [x] next-intl setup, BN/EN toggle (URL segment + `pp_locale` cookie — see ARCHITECTURE §7), number/currency formatters (lakh-crore, bn digits)
+- [x] `lib/placeholders.js` + `<SmartImage>` (Unsplash/Pexels fallback, deterministic per entity)
+- [x] UI primitives (Button, Field, Input/Textarea, Select, Checkbox, Drawer, Table, Tag, StatusChip, Toast, Empty/Error/Skeleton)
+- [x] API client (server: cookie forwarding; client: fetch + single-flight refresh-on-401), React Query provider
 - [ ] Login / forgot / reset pages, `proxy.js` route guards by role
 - [ ] Dashboard shell (sidebar, topbar, command palette), Portal shell
 
@@ -151,6 +152,15 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 ---
 
 ## 📝 Session Log (newest first)
+
+### 2026-10-12 (2): F1 step 1 — design system, i18n, primitives
+- Owner supplied 3 references + design rules; approved the system (palette with contrast fixes, type roles, Noto Serif Bengali for BN display, new status colours, mono for codes/money). Recorded in ARCHITECTURE §7.
+- **i18n:** locale as root segment `app/[locale]/` (next-intl 4 + `next/root-params`), `proxy.js` handles locale redirect, `pp_locale` cookie. Old `app/layout.js` and `app/page.js` replaced by `app/[locale]/…` (owner deletes the old two files).
+- **New:** `styles/theme.css` (tokens), `app/globals.css` (eyebrow / blueprint / hatch utilities, motion), `components/ui/*`, `components/media/SmartImage.js`, `components/i18n/LocaleSwitcher.js`, `components/providers/Providers.js`, `lib/format`, `lib/placeholders.js`, `lib/unitStatus.js`, `lib/api/{client,server,errors}.js`, `messages/{bn,en}.json`, `i18n/*`.
+- Backend media render `unoptimized` (already WebP variants + blur); stock placeholders use the Unsplash CDN loader — no Next image optimizer, so no local-IP issue.
+- **Verified in sandbox:** `next build` (fonts stubbed — sandbox has no Google Fonts), ESLint clean, `/bn` + `/en` dev/design render with no runtime errors, no horizontal scroll at 390px. Found and fixed: a constant exported from a client module was a client reference in a Server Component (moved to `lib/unitStatus.js`).
+- **Not verified:** real font rendering and the Unsplash photo IDs (sandbox can't reach either) — owner checks on `/dev/design`.
+- B1: owner ran `npm test` — 76 passed; `auth.test.js` timed out in `beforeAll` while the MongoDB binary downloaded. Fixed with `tests/global-setup.js` (pre-download, no timeout). Re-run pending.
 
 ### 2026-10-12: B1 Core platform — code complete
 **Decision:** D5 accepted (bank-slip upload; see Resolved decisions).
