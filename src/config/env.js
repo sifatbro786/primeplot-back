@@ -1,11 +1,13 @@
 import { z } from 'zod';
 
 // Node ≥ 24 loads .env natively — no dotenv. In production (PM2/VPS) real env vars win;
-// a missing .env file is not an error.
-try {
-  process.loadEnvFile();
-} catch (err) {
-  if (err.code !== 'ENOENT') throw err;
+// a missing .env file is not an error. Tests never read .env (no real SMTP/DB by accident).
+if (process.env.NODE_ENV !== 'test') {
+  try {
+    process.loadEnvFile();
+  } catch (err) {
+    if (err.code !== 'ENOENT') throw err;
+  }
 }
 
 // z.coerce.boolean() treats the string "false" as true — parse explicitly.
@@ -45,6 +47,14 @@ const schema = z.object({
     .string()
     .regex(/^mongodb(\+srv)?:\/\//, 'MONGODB_URI must start with mongodb:// or mongodb+srv://'),
   AUTH_SECRET: z.string().min(32, 'AUTH_SECRET must be at least 32 characters'),
+  // Single-tenant: which organization this deployment serves (slug). Empty = the only org in the DB.
+  ORG_SLUG: optionalStr,
+  ACCESS_TOKEN_TTL_MIN: z.coerce.number().int().min(1).max(60).default(15),
+  REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().min(1).max(30).default(7),
+  REFRESH_REMEMBER_TTL_DAYS: z.coerce.number().int().min(1).max(90).default(30),
+  // Hard cap on a login session no matter how often it is refreshed.
+  SESSION_ABSOLUTE_TTL_DAYS: z.coerce.number().int().min(1).max(180).default(60),
+  AUDIT_RETENTION_DAYS: z.coerce.number().int().min(30).default(365),
 
   // Email (Nodemailer). Optional at boot; the email service reports disabled if missing.
   SMTP_HOST: optionalStr,
@@ -58,9 +68,14 @@ const schema = z.object({
   STORAGE_DRIVER: z.enum(['local']).default('local'),
   UPLOAD_DIR: z.string().default('uploads'),
   PUBLIC_MEDIA_BASE_URL: optionalStr,
+  MEDIA_MAX_IMAGE_MB: z.coerce.number().positive().max(50).default(15),
+  MEDIA_MAX_DOC_MB: z.coerce.number().positive().max(50).default(10),
 
   // Ops
   CRON_SECRET: optionalStr,
+  JOBS_ENABLED: bool(true),
+  JOB_TICK_MS: z.coerce.number().int().min(1000).default(30_000),
+  JOB_CONCURRENCY: z.coerce.number().int().min(1).max(10).default(2),
 
   // SSLCommerz — feature disabled until both keys are present.
   SSLCZ_STORE_ID: optionalStr,
@@ -99,6 +114,10 @@ export const env = Object.freeze({
   isDev: e.NODE_ENV === 'development',
   isTest: e.NODE_ENV === 'test',
   corsOrigins: e.CORS_ORIGINS?.length ? e.CORS_ORIGINS : [e.CLIENT_URL],
+  mediaBaseUrl: (e.PUBLIC_MEDIA_BASE_URL ?? `http://localhost:${e.PORT}/uploads`).replace(
+    /\/+$/,
+    '',
+  ),
   features: Object.freeze({
     email: Boolean(e.SMTP_HOST && e.SMTP_USER && e.SMTP_PASS),
     sslcommerz: Boolean(e.SSLCZ_STORE_ID && e.SSLCZ_STORE_PASS),

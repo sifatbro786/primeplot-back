@@ -9,10 +9,10 @@
 
 | | |
 |---|---|
-| **Current phase** | Phase 0: Foundation — code complete; **0.8 DB check pending on the owner's PC** |
-| **Last completed** | Phase 0 code (backend + frontend foundation) (2026-10-11) |
-| **Next step** | Owner verifies Phase 0 locally (see Session Log) → B1 Core platform |
-| **Blocker** | None. D1/D3/D4/D5 still open (not blocking B1) |
+| **Current phase** | B1: Core platform — **code complete; DB integration tests pending on the owner's PC** |
+| **Last completed** | B1 code (auth, RBAC, users, org, audit, media, email, job scheduler) (2026-10-12) |
+| **Next step** | Owner: `npm install` → `npm run seed` → `npm test` (see Session Log 2026-10-12) → then F1 (Shell, i18n & Auth UI) |
+| **Blocker** | None. D1/D3/D4 still open (not blocking F1/B2) |
 
 ---
 
@@ -24,10 +24,10 @@
 | D2 | SMS gateway provider | Build `log` + BulkSMSBD + SSL Wireless drivers; the client's keys go in `.env` | When the client onboards (code ready in B3) |
 | D3 | Frontend hosting | Vercel (free, easiest) or the same Hostinger VPS (Next standalone + PM2). Code works in both | Before deploy |
 | D4 | v1/v2 split | See ARCHITECTURE §4 (proposed) | Before B2 |
-| D5 | Payment channels | Manual payments (cash/cheque/PDC/bank transfer/pay order) are first-class; client can upload a bank-transfer slip in the portal for staff to verify; SSLCommerz optional; Stripe not in v1 (gateway adapter keeps it addable) | Before B4 |
 
 ## ✅ Resolved decisions
 - 2026-10-11: single-tenant + `orgId`; apartment + plot; no Redis
+- 2026-10-12: **D5 accepted** — manual payments (cash/cheque/PDC/bank transfer/pay order) are first-class; the client can upload a bank-transfer slip in the portal and staff verify it (verified slip → normal receipt); SSLCommerz optional; Stripe not in v1 (gateway adapter keeps it addable). Slip storage (private `payment_slip` media) is built in B1; the slip workflow lands in B4/B5.
 - 2026-10-11 (rev): dev-only for now, backend on the Hostinger VPS at the end; **Cloudinary dropped → local `uploads/`**; SSLCommerz + SMS fully built and env-driven; Unsplash/Pexels placeholders; Node ≥ 24; `PORT=5030`; Atlas URI and SMTP set in `.env`
 
 ---
@@ -44,19 +44,20 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] 0.5 Backend: `AppError` hierarchy, central error handler, 404, response shape
 - [x] 0.6 Frontend: `next.config.mjs` rewrites (`/api/*` → `localhost:5030`), `images.remotePatterns` (Unsplash/Pexels/backend), `.env.example`, `engines >=24`
 - [x] 0.7 Frontend: design tokens (Tailwind v4 `@theme`), fonts (EN + BN), base layout
-- [~] 0.8 Both: verify (backend boots and connects to the DB; frontend proxies the health check), commit
+- [~] 0.8 Both: verify (backend boots and connects to the DB; frontend proxies the health check), commit — owner checks together with B1 (`npm run seed` proves the DB connection)
 
 ### B1: Core platform (Backend)
-- [ ] Organization model + seed script (default org + first Admin)
-- [ ] User model, roles → permissions map, `authorize(permission)` middleware
-- [ ] Auth: login, refresh rotation (sessions collection), logout, logout-all, me, password reset (email)
-- [ ] Lockout on failed logins, rate limiting, helmet, CORS
-- [ ] Audit log module (actor, action, entity, diff, ip)
-- [ ] Storage adapter (local driver; S3 later) + media upload (sharp WebP variants, EXIF strip, magic-byte MIME check, private/public split)
-- [ ] Integration config resolver (`getIntegrationConfig`) + email service (Nodemailer, SMTP env)
-- [ ] Mongo job scheduler (in-process tick, atomic claim, retry/backoff) + `/internal/cron/tick` + job registry
-- [ ] Tests: auth flows, RBAC, scheduler claim race
-- [ ] API contracts → `docs/API.md`
+- [x] Organization model + seed script (default org + first Admin)
+- [x] User model, roles → permissions map, `authorize(permission)` middleware
+- [x] Auth: login, refresh rotation (sessions collection), logout, logout-all, me, password reset (email)
+- [x] Lockout on failed logins, rate limiting, helmet, CORS
+- [x] Audit log module (actor, action, entity, diff, ip)
+- [x] Storage adapter (local driver; S3 later) + media upload (sharp WebP variants, EXIF strip, magic-byte MIME check, private/public split)
+- [x] Integration config resolver (`getIntegrationConfig`) + email service (Nodemailer, SMTP env)
+- [x] Mongo job scheduler (in-process tick, atomic claim, retry/backoff) + `/internal/cron/tick` + job registry
+- [~] Tests: auth flows, RBAC, scheduler claim race — written (unit 41 ✔ in sandbox; integration needs MongoDB → owner runs `npm test`)
+- [x] API contracts → `docs/API.md`
+- [x] Extras: account invite/setup flow, session list/revoke, admin user management, private-file streaming, media purge job
 
 ### F1: Shell, i18n & Auth (Frontend)
 - [ ] next-intl setup, BN/EN toggle (cookie-based), number/currency formatters (lakh-crore, bn digits)
@@ -150,6 +151,33 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 ---
 
 ## 📝 Session Log (newest first)
+
+### 2026-10-12: B1 Core platform — code complete
+**Decision:** D5 accepted (bank-slip upload; see Resolved decisions).
+
+**New dependencies:** jsonwebtoken, express-rate-limit 8, multer 2, sharp, file-type, nodemailer. Dev: vitest, supertest, mongodb-memory-server.
+Password hashing uses Node's built-in **scrypt** (N=2^15, r=8, p=3) — no native addon to compile on Windows or the VPS.
+
+**Modules** (`src/modules/`)
+- `organizations/` — model, cached single-tenant resolver (`ORG_SLUG` or the only org), `GET /org/public`, `GET|PATCH /org`.
+- `users/` — model (authVersion, lockout fields, `select:false` secrets), admin CRUD + invite, self profile. Guards: no self role/status change, last-admin protection.
+- `auth/` — sessions collection (one doc per refresh family, HMAC-hashed token, CAS rotation, 30 s multi-tab grace, reuse ⇒ revoke), single-use `auth_tokens` (reset 30 min, setup 72 h), lockout (5 fails → 15/30/60/120/240 min), JWT HS256 with HKDF-derived key, `authVersion` in the token for instant revocation, 30 s in-process user cache + revoked-session set, cookie helpers, password policy.
+- `audit/` — append-only model (update/delete hooks throw), TTL `AUDIT_RETENTION_DAYS`, `audit()` helper (transaction-aware), cursor-paginated `GET /audit`.
+- `media/` — magic-byte check, sharp (rotate, strip EXIF/GPS, thumb/card/full WebP + blur), decompression-bomb cap, 2-image concurrency cap, private/public split, authenticated streaming, soft delete + purge job.
+
+**Shared / infra**
+- `shared/auth/permissions.js` — the single permission catalogue + role bundles (B2–B5 permissions declared up front).
+- `shared/middleware/` — `validate` (strict Zod → `req.valid`), `rateLimit`, `originGuard` (CSRF defence-in-depth), `resolveOrg`.
+- `shared/crypto/` (HKDF keys, HMAC token hashing, scrypt); `shared/utils/` (`phone` BD→E.164, `pagination`, `diff`).
+- `integrations/` — `config.js` resolver, `storage/` (local driver, atomic writes, path-escape guard), `email/` (Nodemailer pool, BN/EN templates, queue helper; dev logs links when SMTP is off).
+- `jobs/` — model, registry, scheduler (atomic claim, backoff + jitter, dead after max, stale-lock recovery, dedupeKey, sensitive payload wipe, recurring jobs, debounced nudge), handlers `email.send` and `media.purgeDeleted`, `POST /internal/cron/tick`.
+- `app.js` serves `uploads/public` at `/uploads` (CORP cross-origin); `server.js` starts/stops the scheduler; error handler maps multer errors.
+- `scripts/seed.js` (idempotent; `--sync-indexes` for production), `vitest.config.js`, `tests/` (unit + integration).
+
+**Verified in sandbox:** ESLint + Prettier clean, `npm run check` (all files), 41 unit tests (scrypt, policy, BD phone, RBAC bundles, JWT tamper/alg-none/expiry, token hashing, email escaping/Bangla, storage path traversal), app boot + DB-free routes (health, origin guard, cron 404, uploads 404), sharp pipeline (orientation, EXIF strip, corrupt JPEG rejection), file-type (SVG/HTML rejected), rate limiter 429.
+**Not verified:** anything that needs MongoDB (sandbox can't download mongod). The integration suites in `tests/integration/` (auth, RBAC/users/org, audit, scheduler claim race, media) run on the owner's PC with `npm test`.
+
+**Known limits (accepted for v1):** rate-limit counters and the revoked-session set are in memory (single PM2 instance); the last-admin guard is not transactional (two admins disabling each other at the same instant).
 
 ### 2026-10-11 (3): Phase 0 Foundation — code complete
 **Backend**

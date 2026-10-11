@@ -8,6 +8,8 @@ import { randomUUID } from 'node:crypto';
 import { env } from '#config/env.js';
 import { logger } from '#config/logger.js';
 import apiRoutes from './routes.js';
+import { storage } from '#integrations/storage/index.js';
+import '#jobs/index.js'; // registers job handlers
 import { errorHandler, notFound } from '#shared/middleware/errorHandler.js';
 
 const REQUEST_ID_RE = /^[A-Za-z0-9._-]{8,64}$/;
@@ -39,7 +41,9 @@ export function createApp() {
         return 'info';
       },
       // Keep health checks out of the logs (uptime monitors hit them constantly).
-      autoLogging: { ignore: (req) => req.url.startsWith('/api/v1/health') },
+      autoLogging: {
+        ignore: (req) => req.url.startsWith('/api/v1/health') || req.url.startsWith('/uploads/'),
+      },
       serializers: {
         req: (req) => ({ id: req.id, method: req.method, url: req.url }),
         res: (res) => ({ statusCode: res.statusCode }),
@@ -63,6 +67,25 @@ export function createApp() {
   app.use(express.json({ limit: '1mb' }));
   app.use(express.urlencoded({ extended: false, limit: '1mb' }));
   app.use(cookieParser());
+
+  // Public media (local driver). In production Nginx serves /uploads directly; this stays as
+  // the dev server and a fallback. Private files live outside this directory.
+  if (storage.localPublicDir) {
+    app.use(
+      '/uploads',
+      express.static(storage.localPublicDir, {
+        index: false,
+        dotfiles: 'deny',
+        redirect: false,
+        maxAge: '365d',
+        immutable: true, // keys are random and never reused
+        setHeaders(res) {
+          // helmet sets CORP same-origin; the frontend (another origin) must be able to embed.
+          res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+        },
+      }),
+    );
+  }
 
   app.use('/api/v1', apiRoutes);
 

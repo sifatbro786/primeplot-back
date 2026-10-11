@@ -61,6 +61,7 @@ PrimePlot is a real-estate management and CRM platform for Bangladeshi real-esta
 - Booking, payment schedules, receipts, cheque/PDC handling, transfer and cancellation
 - QR-verified documents + server PDF (Puppeteer on the VPS) + email delivery
 - Customer Portal: units, schedule, dues, receipts, documents, plus **SSLCommerz online payment**
+- Manual payment channels first-class (cash, cheque/PDC, bank transfer, pay order); the client can upload a **bank-transfer slip** in the portal, staff verify it, and a verified slip becomes a normal receipt *(D5, accepted 2026-10-12)*
 - Reminder engine (SMS + email)
 - Discount limit per role (permission-based; not a full approval workflow)
 - Milestone-type schedule items that staff mark due manually
@@ -129,6 +130,9 @@ PrimePlot is a real-estate management and CRM platform for Bangladeshi real-esta
   - stored hashed in a `sessions` collection
   - reusing an old token revokes the whole session family
 - Brute-force protection: failed attempts are counted on the user document and trigger a lockout. This is durable; the rate limit is not.
+- Passwords: Node's built-in **scrypt** (N=2^15, r=8, p=3), self-describing hash format so parameters can be raised later (rehash on next login). *(B1)*
+- Access tokens carry the user's `authVersion`; password/role/status change and logout-all bump it, so every outstanding token dies at once. A 30 s in-process cache keeps this check off the DB for most requests. *(B1)*
+- Single-use emailed tokens (password reset 30 min, account setup 72 h) are stored only as HMAC hashes. *(B1)*
 - `helmet`, strict CORS (credentials), and `express-rate-limit` with an **in-memory store**. That is fine for a single instance, but it resets on restart.
 - **Cookies across frontend and backend hosts:** the frontend proxies `/api/*` to the backend through **Next.js `rewrites`**, so cookies stay first-party on the frontend domain.
   - This works on Vercel, on the VPS, and in dev (`localhost:3000` → `localhost:5030`).

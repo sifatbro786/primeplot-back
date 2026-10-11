@@ -51,6 +51,17 @@ function normalize(err) {
     return new AppError('Request body too large', { statusCode: 413, code: 'PAYLOAD_TOO_LARGE' });
   }
 
+  // multer (uploads)
+  if (err?.name === 'MulterError') {
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return new AppError('File is too large', { statusCode: 413, code: 'FILE_TOO_LARGE' });
+    }
+    return new AppError(`Upload rejected: ${err.message}`, { statusCode: 400, code: 'BAD_UPLOAD' });
+  }
+  if (err?.type === 'entity.verify.failed' || err?.message === 'Multipart: Boundary not found') {
+    return new AppError('Malformed upload', { statusCode: 400, code: 'BAD_UPLOAD' });
+  }
+
   return null;
 }
 
