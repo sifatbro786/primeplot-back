@@ -31,6 +31,7 @@ router.post('/logout', optionalAuth, c.logout);
 router.post('/logout-all', authenticate, c.logoutAll);
 
 router.get('/me', authenticate, c.me);
+router.post('/socket-token', authenticate, limits.refresh, c.socketToken);
 router.patch(
   '/me',
   authenticate,

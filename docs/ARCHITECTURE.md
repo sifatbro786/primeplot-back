@@ -31,6 +31,7 @@ PrimePlot is a real-estate management and CRM platform for Bangladeshi real-esta
 
 1. **Tenancy:** each deployment serves one company (single-tenant). **Every schema must have `orgId`** (base plugin, §6.1), for future SaaS.
 2. **Inventory:** v1 supports both **Apartment** and **Plot**. One `Unit` model with `kind: 'apartment' | 'plot'` and a separate pricing strategy per kind.
+   - Hierarchy *(B2)*: Project → Block (`building` for apartments; `block`/`sector` for plots) → Unit. A building declares its floor range; each unit carries `floor` (0 = ground, negative = basement) and `position` ('A', 'B'…), so there is no Floor collection. A plot's road is a unit field (`road`, `roadWidthFt`).
 3. **Queue:** no Redis. MongoDB `jobs` collection plus a tick.
 4. **Storage:** local `uploads/` (adapter pattern: `STORAGE_DRIVER=local`, with S3-compatible drivers possible later).
 5. **Hosting:** dev now; at the end, Hostinger VPS (backend) + Atlas M0. *(Updated 2026-10-11: Render/Cloudinary dropped.)*
@@ -81,6 +82,10 @@ PrimePlot is a real-estate management and CRM platform for Bangladeshi real-esta
 
 ## 5. Domain rules (business rules, must be followed)
 
+- **Area units** *(owner decision 2026-10-12)*:
+  - Plot/land: entered in **katha or decimal (শতাংশ)**; the entered figure is kept (deed = source of truth) and katha, decimal, sq ft and sq m are derived and stored. 1 katha = 720 sq ft, 1 decimal = 435.6 sq ft (= 0.605 katha).
+  - Apartment: **sq ft is primary** (`saleableSqft`, optional `carpetSqft`); sq m is derived and stored so every view can show both.
+  - Conversions and area × rate prices use exact scaled-integer math (`src/shared/utils/area.js`).
 - **Money:** always stored as **integer poisha** (`Number`, ৳1 = 100). Never use floats. Format only for display.
   - Lakh/crore grouping: `৳ 1,25,50,000`.
   - Amount in words in English and Bangla.

@@ -9,10 +9,10 @@
 
 | | |
 |---|---|
-| **Current phase** | F1b: Admin screens — **code complete**; owner verification pending |
-| **Last completed** | F1b Team / Audit log / Company settings (2026-10-12) |
-| **Next step** | Owner: verify F1 + F1b against the real backend → B2 Projects & Inventory (backend) |
-| **Blocker** | None. D1/D3/D4 still open (not blocking F1/B2) |
+| **Current phase** | B2: Projects & Inventory (backend) — **code complete**; owner runs `npm test` (integration needs MongoDB) |
+| **Last completed** | B2 projects/blocks/units, pricing, hold machine, floor plans, Socket.IO, public API, revalidation (2026-10-12) |
+| **Next step** | Owner: `npm install` + `npm test` + `npm run seed -- --sync-indexes` → F3 Dashboard Inventory (or F2 public site) |
+| **Blocker** | None. D1/D3/D4 still open (not blocking F2/F3) |
 
 ---
 
@@ -27,6 +27,7 @@
 
 ## ✅ Resolved decisions
 - 2026-10-11: single-tenant + `orgId`; apartment + plot; no Redis
+- 2026-10-12: **Area units** — plots/land take **katha or decimal (শতাংশ)** as entered (deed figure kept as the source of truth) and the backend stores both (+ sq ft, sq m), with exact auto-conversion (1 katha = 720 sft, 1 decimal = 435.6 sft). Apartments: **sq ft primary**, sq m derived and stored so views can show both.
 - 2026-10-12: **D5 accepted** — manual payments (cash/cheque/PDC/bank transfer/pay order) are first-class; the client can upload a bank-transfer slip in the portal and staff verify it (verified slip → normal receipt); SSLCommerz optional; Stripe not in v1 (gateway adapter keeps it addable). Slip storage (private `payment_slip` media) is built in B1; the slip workflow lands in B4/B5.
 - 2026-10-11 (rev): dev-only for now, backend on the Hostinger VPS at the end; **Cloudinary dropped → local `uploads/`**; SSLCommerz + SMS fully built and env-driven; Unsplash/Pexels placeholders; Node ≥ 24; `PORT=5030`; Atlas URI and SMTP set in `.env`
 
@@ -74,13 +75,14 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] Organization settings (identity, contact, registration, logo upload via `/media`, fiscal year, default language)
 
 ### B2: Projects & Inventory (Backend)
-- [ ] Project → Block/Building (Sector/Road) → Floor → Unit models (apartment + plot)
-- [ ] Pricing strategies (apartment: sft rate + floor rise + facing + parking; plot: katha/decimal rate + corner + road width)
-- [ ] Unit status machine + atomic hold/release + hold-expiry job
-- [ ] Floor plan / master plan model + normalized hotspots
-- [ ] Socket.IO (project rooms, `unit:status` deltas, socket token auth)
-- [ ] Public read APIs (blocked units hidden) + revalidation webhook to the frontend
-- [ ] Tests: concurrent hold race, status transitions
+- [x] Project → Block/Building (Sector) → Unit models (apartment + plot). Floors are a range on the building + `unit.floor` (no Floor collection); plot road is a unit field (`road`, `roadWidthFt`)
+- [x] Pricing strategies (apartment: sft rate + floor rise + facing + corner + parking + charges; plot: katha/decimal rate + road-width tiers + facing + corner % + charges), exact integer math, itemised breakdown
+- [x] Area units: katha ↔ decimal ↔ sq ft ↔ sq m (stored + derived), owner decision 2026-10-12
+- [x] Unit status machine + atomic hold/release/extend/block/unblock + per-user hold cap + hold-expiry job (+ lazy expiry on read)
+- [x] Floor plan / master plan model + normalized hotspots (typical floor plans by position)
+- [x] Socket.IO (project rooms, `unit:status` deltas, socket token auth)
+- [x] Public read APIs (blocked units hidden) + signed revalidation webhook to the frontend
+- [~] Tests: unit 62 ✔ in sandbox; integration (`inventory.test.js` — hold race, transitions, pricing, public, floor plans; `sockets.test.js`) written — owner runs `npm test`
 
 ### F2: Public site (Frontend)
 - [ ] Home, projects listing + filters
@@ -158,6 +160,28 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 ---
 
 ## 📝 Session Log (newest first)
+
+### 2026-10-12 (5): B2 Projects & Inventory — code complete
+**Owner decisions:** area units (see Resolved decisions). D4 still open — B2 follows the proposed v1 scope.
+
+**New dependency:** `socket.io` 4.8 (dev: `socket.io-client`). New subpath import `#sockets/*`.
+**New env (all optional):** `UNIT_HOLD_DEFAULT_HOURS=24`, `UNIT_HOLD_MAX_HOURS=72`, `UNIT_HOLD_MAX_PER_USER=10`, `REVALIDATE_SECRET` (same value as the frontend's), `FRONTEND_REVALIDATE_URL`.
+
+**Modules**
+- `shared/utils/area.js` — katha/decimal/sq ft/sq m on scaled BigInt (exact: "3.30 decimal at ৳X/katha" never drifts a poisha); `shared/db/areaSchema.js` (stored `{ value, unit, katha, decimal, sqft, sqm }`).
+- `projects/` — Project (kind immutable, slug unique among live docs, location GeoJSON, land area, approval, media ids checked as public images, `publicPricing`, rate card), Block (building | block | sector, floor range), CRUD, `PUT /pricing` re-prices unsold units, cascade soft delete (refused while held/sold).
+- `units/` — Unit model (apartment/plot fields, derived areas, `listPrice`, hold subdoc), `pricing.js` (two strategies → itemised breakdown for the B4 snapshot), `unitStatus.js` (transition table, effective status, public vocabulary), service: CRUD + bulk (one transaction, ≤ 500), code auto-generation, kind-field guard, `pricing:write` guard for overrides, price-field lock on sold units, atomic `transition()` (status in the filter + `__v` bump), hold cap, `transitionUnit()` for B4 (session-aware; announce after commit).
+- `floorplans/` — floor/master plans, 0–1 polygons (≤ 100 points, ≤ 500 hotspots), targets unit | position | block, typical-floor resolution, public view hides blocked units (no id).
+- `public/` — `/public/projects`, `/projects/:slug`, `/projects/:slug/units`, `/units/:id`, `/floorplans/:id` (published only, blocked/cancelled hidden, prices only with `publicPricing`, short `Cache-Control`).
+- `sockets/` — Socket.IO on the API server, handshake token (`POST /auth/socket-token`, 60 s, separate key/audience), org-scoped project rooms `public`/`staff`, `unit:status` deltas; closed first on shutdown.
+- `integrations/revalidate/` + job `frontend.revalidate` (HMAC-SHA256 over `ts.body`, coalesced, retried); job `units.expireHolds` (every minute per org).
+- `media.service`: `assertPublicMedia`, `publicMediaMap`. Seed `--sync-indexes` covers the new collections.
+- `docs/API.md`: full B2 contract (shapes, rate card, endpoints, socket protocol, webhook).
+
+**Verified in sandbox:** ESLint + Prettier clean, `npm run check`, 62 unit tests (area conversion and exact cross-unit pricing, both pricing strategies, status machine, request schemas, socket-token separation, webhook signature), app + Socket.IO boot, Mongoose casting/validation of the new models.
+**Not verified:** anything needing MongoDB (the sandbox still cannot download `mongod`): `tests/integration/inventory.test.js` (19 cases incl. 10-way concurrent hold race) and `sockets.test.js` → owner runs `npm test`.
+
+**Known limits (accepted for v1):** the per-user hold cap is checked before the atomic hold (two simultaneous holds by the same person can exceed it by one); a staff socket stays subscribed until disconnect even if the user logs out (the token is only checked at connect); public responses share the API rate limit (Next.js server fetches are cached by tag, so volume is low — revisit in Phase H).
 
 ### 2026-10-12 (4): F1b — admin screens
 - **Team** (`/dashboard/users`, `users:read`; edit `users:manage`): debounced search, role/status filters, offset pagination, invite drawer (duplicate email → field error), edit drawer sends only changed fields; own role/status locked; resend invite for invited members; SELF_CHANGE / LAST_ADMIN / INVITE_PENDING shown inline.

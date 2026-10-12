@@ -2,7 +2,7 @@ import { permissionsFor } from '#shared/auth/permissions.js';
 import { ForbiddenError, UnauthorizedError } from '#shared/errors/AppError.js';
 import { User } from '#modules/users/user.model.js';
 import { ACCESS_COOKIE } from './auth.cookies.js';
-import { verifyAccessToken } from './token.service.js';
+import { verifyAccessToken, verifySocketToken } from './token.service.js';
 import { cacheUser, getCachedUser, isSessionRevoked } from './authState.js';
 
 function readToken(req) {
@@ -56,6 +56,20 @@ export async function authenticate(req, res, next) {
     permissions: permissionsFor(user.role),
   };
   next();
+}
+
+/**
+ * Socket.IO handshake: socket token → the same user checks as authenticate() (active,
+ * authVersion). Returns { id, name, role, permissions } or throws UnauthorizedError.
+ */
+export async function authenticateSocketToken(token, orgId) {
+  const claims = verifySocketToken(token);
+  if (claims.org !== String(orgId)) throw new UnauthorizedError('Invalid session');
+  const user = await loadAuthUser(claims.sub, orgId);
+  if (!user || user.status !== 'active' || user.authVersion !== claims.av) {
+    throw new UnauthorizedError('Session is no longer valid', { code: 'SESSION_INVALIDATED' });
+  }
+  return { ...user, orgId, permissions: permissionsFor(user.role) };
 }
 
 /** Requires ALL listed permissions. Use after authenticate. */

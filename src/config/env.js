@@ -77,6 +77,19 @@ const schema = z.object({
   JOB_TICK_MS: z.coerce.number().int().min(1000).default(30_000),
   JOB_CONCURRENCY: z.coerce.number().int().min(1).max(10).default(2),
 
+  // Inventory (B2)
+  UNIT_HOLD_DEFAULT_HOURS: z.coerce.number().int().min(1).max(168).default(24),
+  UNIT_HOLD_MAX_HOURS: z.coerce.number().int().min(1).max(336).default(72),
+  // Active holds one person may keep at once (0 = no limit) — stops inventory hoarding.
+  UNIT_HOLD_MAX_PER_USER: z.coerce.number().int().min(0).max(1000).default(10),
+
+  // Frontend on-demand revalidation (Next.js /api/revalidate). Disabled until the secret is set.
+  REVALIDATE_SECRET: z
+    .string()
+    .min(32, 'REVALIDATE_SECRET must be at least 32 characters')
+    .optional(),
+  FRONTEND_REVALIDATE_URL: z.url().optional(),
+
   // SSLCommerz — feature disabled until both keys are present.
   SSLCZ_STORE_ID: optionalStr,
   SSLCZ_STORE_PASS: optionalStr,
@@ -122,5 +135,7 @@ export const env = Object.freeze({
     email: Boolean(e.SMTP_HOST && e.SMTP_USER && e.SMTP_PASS),
     sslcommerz: Boolean(e.SSLCZ_STORE_ID && e.SSLCZ_STORE_PASS),
     sms: e.SMS_DRIVER !== 'log',
+    revalidate: Boolean(e.REVALIDATE_SECRET),
   }),
+  revalidateUrl: e.FRONTEND_REVALIDATE_URL ?? `${e.CLIENT_URL.replace(/\/+$/, '')}/api/revalidate`,
 });

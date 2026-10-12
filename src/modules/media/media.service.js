@@ -289,3 +289,32 @@ export async function purgeDeletedMedia(orgId, { batch = 100 } = {}) {
   if (purged) log.info({ purged }, 'Purged deleted media');
   return purged;
 }
+
+/**
+ * For modules that attach media to public-facing records (projects, floor plans — B2):
+ * every id must be a live PUBLIC file of this org (optionally of one kind). Private files can
+ * never be wired onto the website this way.
+ */
+export async function assertPublicMedia(orgId, ids, { kind } = {}) {
+  const unique = [...new Set(ids.filter(Boolean).map(String))];
+  if (!unique.length) return new Map();
+  const rows = await Media.find({ orgId, _id: { $in: unique }, visibility: 'public' }).lean();
+  const found = new Map(rows.map((m) => [String(m._id), m]));
+  const bad = unique.filter((id) => !found.has(id) || (kind && found.get(id).kind !== kind));
+  if (bad.length) {
+    throw new AppError('Some media were not found, are private, or are the wrong type', {
+      statusCode: 422,
+      code: 'INVALID_MEDIA',
+      details: bad.map((id) => ({ path: 'mediaId', message: id })),
+    });
+  }
+  return found;
+}
+
+/** id → public media JSON for the given ids (missing/deleted/private ids are skipped). */
+export async function publicMediaMap(orgId, ids) {
+  const unique = [...new Set(ids.filter(Boolean).map(String))];
+  if (!unique.length) return new Map();
+  const rows = await Media.find({ orgId, _id: { $in: unique }, visibility: 'public' }).lean();
+  return new Map(rows.map((m) => [String(m._id), toPublicMedia(m)]));
+}

@@ -4,6 +4,7 @@
 //                   --admin-name "Sifat" --admin-email you@example.com [--admin-password "…"]
 //
 // Without --admin-password a strong random password is generated and printed ONCE.
+// Index maintenance only (no setup args): npm run seed -- --sync-indexes
 import { parseArgs } from 'node:util';
 import mongoose from 'mongoose';
 import { randomBytes } from 'node:crypto';
@@ -18,6 +19,10 @@ import '#modules/auth/session.model.js';
 import '#modules/auth/authToken.model.js';
 import '#modules/media/media.model.js';
 import '#jobs/job.model.js';
+import '#modules/projects/project.model.js';
+import '#modules/projects/block.model.js';
+import '#modules/units/unit.model.js';
+import '#modules/floorplans/floorplan.model.js';
 import { assertPasswordAllowed, zPassword } from '#modules/auth/passwordPolicy.js';
 
 const { values: a } = parseArgs({
@@ -43,10 +48,25 @@ function fail(msg) {
   process.exit(1);
 }
 
+// `npm run seed -- --sync-indexes` alone = index maintenance only (after a deploy/new models).
+const indexOnly = a['sync-indexes'] && !orgName && !orgSlug && !adminName && !adminEmail;
+
+if (indexOnly) {
+  await connectDB({ retries: 2 });
+  try {
+    await mongoose.syncIndexes();
+    console.log('✔ Indexes synced');
+  } finally {
+    await disconnectDB();
+  }
+  process.exit(0);
+}
+
 if (!orgName || !orgSlug || !adminName || !adminEmail) {
   fail(
     'Missing arguments. Usage:\n  npm run seed -- --org-name "Acme Properties Ltd" --org-slug acme ' +
-      '--admin-name "Your Name" --admin-email you@example.com',
+      '--admin-name "Your Name" --admin-email you@example.com\n' +
+      '  Indexes only (existing setup):  npm run seed -- --sync-indexes',
   );
 }
 if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(orgSlug))

@@ -208,3 +208,169 @@ Uploader or `media:delete`. Soft delete; the files are removed 7 days later by a
 
 ### `POST /internal/cron/tick` (header `X-Cron-Secret: <CRON_SECRET>`)
 `200 { processed }`. Runs due background jobs now. `404` when `CRON_SECRET` is not set. Not for the frontend.
+
+---
+
+## B2 — Projects & Inventory
+
+New error codes:
+
+| Code | HTTP | When |
+|---|---|---|
+| `STALE_VERSION` | 409 | `version` in a PATCH/PUT is old — someone else changed the record (or a hold/booking happened). Reload and retry |
+| `UNIT_STATE_CONFLICT` | 409 | Hold/release/block lost the race or the unit is in the wrong state. `details: { status, heldUntil }` |
+| `HOLD_LIMIT` | 409 | You already hold `UNIT_HOLD_MAX_PER_USER` units. `details.limit` |
+| `NOT_HOLDER` | 403 | Release by someone who is neither the holder nor `units:write` |
+| `UNIT_LOCKED` | 409 | Price-affecting field edit on a sold unit (`details[].path`) |
+| `UNIT_IN_USE` / `PROJECT_IN_USE` / `BLOCK_IN_USE` | 409 | Delete refused (held/sold units, or units still in the block) |
+| `FIELD_NOT_ALLOWED` | 422 | In `details[].code`: apartment field on a plot (or the reverse) |
+| `FLOOR_OUT_OF_RANGE` / `UNITS_OUTSIDE_RANGE` / `INVALID_FLOORS` | 400/409 | Floor outside the building's `lowestFloor…highestFloor` |
+| `INVALID_BLOCK_KIND` | 400 | `building` on a plot project, `block`/`sector` on an apartment project |
+| `INVALID_MEDIA` | 422 | Media id missing, private, or not an image where an image is needed |
+| `INVALID_PLAN` / `INVALID_HOTSPOT_TARGET` / `FLOOR_NOT_IN_PLAN` | 400 | Floor-plan shape problems |
+
+### Conventions for B2
+- **Money** is integer **poisha** everywhere (`850000` = ৳8,500). Format on the client (lakh/crore).
+- **Optimistic concurrency:** every editable record returns `version`. Send it back in `PATCH`/`PUT`; a mismatch → `409 STALE_VERSION`. Status actions (hold, release, block…) also bump the unit's `version`.
+- **Area units** (owner decision 2026-10-12):
+  - **Plot / land:** enter `{ value, unit: "katha" | "decimal" }` (≤ 4 decimals). Stored as entered (deed figure) **plus** derived `katha`, `decimal`, `sqft`, `sqm`:
+    `LandArea = { value, unit, katha, decimal, sqft, sqm }`. Show the entered unit first and the other in brackets, e.g. `৩.৩০ শতাংশ (১.৯৯৬৫ কাঠা)`.
+  - **Apartment:** `saleableSqft` (primary, ≤ 2 decimals) + derived `saleableSqm`; optional `carpetSqft` + `carpetSqm`. Show `১,২৫০ বর্গফুট (১১৬.১৩ বর্গমিটার)`.
+  - Standards: 1 katha = 720 sq ft, 1 decimal = 435.6 sq ft (= 0.605 katha), 1 sq ft = 0.09290304 m². Conversions and prices use exact integer math (no float drift).
+- **Effective status:** a hold whose time has passed is reported as `available` everywhere (a job also flips it in the DB every minute).
+
+### Shapes
+```jsonc
+// Project
+{ "id", "name", "nameBn", "slug", "kind": "apartment"|"plot", "stage": "upcoming"|"ongoing"|"ready"|"completed",
+  "published", "publishedAt", "featured", "sortOrder", "tagline", "taglineBn", "description", "descriptionBn",
+  "highlights": [{ "en", "bn" }], "amenities": ["lift", "generator"],
+  "location": { "address", "addressBn", "area", "areaBn", "city", "district", "lat", "lng" },
+  "landArea": LandArea | null, "approval": { "authority": "RAJUK|CDA|KDA|RDA|other", "number" } | null,
+  "handoverAt": ISODate | null, "coverMediaId", "galleryMediaIds": [], "brochureMediaId",
+  "media"?: { "cover": Media|null, "gallery": Media[], "brochure": Media|null },   // detail + list (cover only)
+  "publicPricing": false, "pricing": RateCard, "pricingUpdatedAt",
+  "inventory"?: { "total", "byStatus": { "available": 12, "held": 2, "booked": 5, … }, "availableFrom": poisha|null },
+  "blocks"?: Block[],                                                              // detail only
+  "version", "createdAt", "updatedAt" }
+
+// Block (building for apartments; block/sector for plots)
+{ "id", "projectId", "kind": "building"|"block"|"sector", "code": "A", "name", "nameBn",
+  "lowestFloor": -2|null, "highestFloor": 14|null, "sortOrder", "version" }
+
+// Unit (staff)
+{ "id", "projectId", "blockId", "kind", "code": "A-5B",
+  // apartment: "floor" (0 = ground, <0 basement), "position": "B", "typeLabel", "bedrooms", "bathrooms", "balconies",
+  //            "saleableSqft", "saleableSqm", "carpetSqft", "carpetSqm", "parkingSlots"
+  // plot:      "plotNo", "road", "roadWidthFt", "landArea": LandArea, "dimensions": { frontFt, backFt, leftFt, rightFt }
+  "facing": "north|south|east|west|north_east|north_west|south_east|south_west"|null, "isCorner", "features": [],
+  "layoutMediaId", "sortOrder", "rateOverride": poisha|null, "priceAdjustment": { "amount", "note" }|null,
+  "listPrice": poisha|null,              // null = "price on request" (no rate card yet)
+  "price"?: PriceBreakdown,              // GET /units/:id only
+  "status": "available|held|booked|allotted|registered|handed_over|cancelled|blocked",
+  "hold": { "by", "byName", "at", "until", "note", "leadId" } | null,
+  "blockReason": "landowner_share|management_reserve|legal_issue|not_for_sale|other"|null, "blockNote",
+  "statusChangedAt", "version", "createdAt", "updatedAt" }
+
+// PriceBreakdown (what B4 will freeze into a booking)
+{ "currency": "BDT", "strategy": "apartment_sqft"|"plot_land", "rateUnit": "sqft"|"katha"|"decimal",
+  "lines": [{ "code": "base|floor_rise|facing|corner|road_width|parking|charge:<code>|adjustment",
+              "amount", "qty"?, "qtyUnit"?, "rate"?, "label"?, "labelBn"?, "note"?, … }],
+  "total" }
+```
+
+**RateCard** (`PUT /projects/:id/pricing`, full replacement; shape depends on the project kind):
+```jsonc
+// apartment
+{ "ratePerSqft": 850000, "floorRise": { "fromFloor": 3, "perFloorPerSqft": 10000 },
+  "facingPremiums": [{ "facing": "south", "perSqft": 20000 }],   // may be negative
+  "cornerPerSqft": 15000, "parkingPerSlot": 40000000,
+  "charges": [{ "code": "utility", "label": "Utility connection", "labelBn": "ইউটিলিটি সংযোগ", "amount": 15000000 }] }
+// plot
+{ "rateUnit": "katha"|"decimal", "rate": 250000000, "cornerPremiumBps": 1000,           // 10 % of base
+  "roadWidthPremiums": [{ "minWidthFt": 25, "perUnit": 10000000 }, { "minWidthFt": 40, "perUnit": 25000000 }],
+  "facingPremiums": [{ "facing": "south", "perUnit": 5000000 }], "charges": [ … ] }
+```
+Rules: floor rise applies from `fromFloor` upward (`(floor − fromFloor + 1) × perFloorPerSqft × sqft`); the best road tier with `minWidthFt ≤ roadWidthFt` applies; a unit's `rateOverride` replaces the base rate; `priceAdjustment` is a signed one-off line. Each line is rounded once; `total` = sum of lines.
+
+### Projects 🔒
+| Endpoint | Permission | Notes |
+|---|---|---|
+| `GET /projects?q&kind&stage&published=true\|false&page&limit` | `projects:read` | List + `inventory` + cover media |
+| `POST /projects` | `projects:write` | Body: `name`, `kind` (required) + any project field. `slug` auto from the English name; a Bangla-only name needs `slug`. `landArea: { value, unit }`, `location.lat/lng` both or neither, `handoverAt: "YYYY-MM-DD"`. Media ids must be **public** images (brochure: public file) |
+| `GET /projects/:id` | `projects:read` | Detail + `media`, `inventory`, `blocks` |
+| `PATCH /projects/:id` | `projects:write` | Any field + `version`. `kind` cannot change. `published: true` puts it on the website |
+| `DELETE /projects/:id` | `projects:write` | Soft delete (with blocks, units, floor plans). `409 PROJECT_IN_USE` if any unit is held or sold |
+| `PUT /projects/:id/pricing` | `pricing:write` (admin) | `{ version, pricing: RateCard }` → project; `meta.repricedUnits`. Unsold units are re-priced; sold units never change |
+
+### Blocks 🔒
+`GET /projects/:id/blocks` (`projects:read`) · `POST /projects/:id/blocks` (`projects:write`; `{ kind, code, name, nameBn?, lowestFloor?, highestFloor?, sortOrder? }`) · `PATCH /projects/:id/blocks/:blockId` (`+ version`; narrowing floors with units outside → `409 UNITS_OUTSIDE_RANGE`) · `DELETE /projects/:id/blocks/:blockId` (`409 BLOCK_IN_USE` while it has units).
+
+### Units 🔒
+| Endpoint | Permission | Notes |
+|---|---|---|
+| `GET /projects/:id/units?blockId&floor&status&bedrooms&q&page&limit` | `units:read` | `status` also accepts `sold` (booked…handed over). `limit` up to 1000 (whole building for the grid). Sorted block → floor (top first) → sortOrder → code |
+| `POST /projects/:id/units` | `units:write` | `blockId` required. Apartment: `floor` required; `code` defaults to `<block>-<floor><position>` (e.g. `A-5B`). Plot: `code` defaults to `<block>-<plotNo>`. `rateOverride`/`priceAdjustment` need `pricing:write` |
+| `POST /projects/:id/units/bulk` | `units:write` | `{ units: [ …up to 500 ] }` → `201 Unit[]`, `meta.created`. All-or-nothing; errors point at `units.<i>.<field>` |
+| `GET /units/:id` | `units:read` | Unit + `price` breakdown |
+| `PATCH /units/:id` | `units:write` | Any unit field + `version`. Sold units: `blockId, floor, position, saleableSqft, landArea, parkingSlots, facing, isCorner, roadWidthFt, rateOverride, priceAdjustment` → `409 UNIT_LOCKED` |
+| `DELETE /units/:id` | `units:write` | Only `available`/`blocked` (`409 UNIT_IN_USE`) |
+
+**Status actions** (atomic — the losing request of a race gets `409 UNIT_STATE_CONFLICT`):
+| Endpoint | Permission | Body → result |
+|---|---|---|
+| `POST /units/:id/hold` | `units:hold` | `{ hours? (default 24, max 72), note?, leadId? }` → held unit. From `available` (or an expired hold). `409 HOLD_LIMIT` |
+| `POST /units/:id/hold/extend` | `units:write` | `{ hours }` → new expiry = now + hours |
+| `POST /units/:id/release` | `units:hold` | Holder, or anyone with `units:write` (`403 NOT_HOLDER`) → `available` |
+| `POST /units/:id/block` | `units:block` | `{ reason, note? }` (`note` required for `other`) → `blocked`. From `available` only |
+| `POST /units/:id/unblock` | `units:block` | → `available` |
+Booking/allotment/registration/hand-over/cancellation come with B4 (same machine: `available→held→booked→allotted→registered→handed_over`, `booked|allotted→cancelled→available`).
+
+Audit actions: `project.create|update|pricing_update|delete`, `block.create|update|delete`, `unit.create|bulk_create|update|delete|hold|hold_extend|release|block|unblock|hold_expired`, `floorplan.create|update|delete`.
+
+### Floor plans 🔒
+Coordinates are **normalized 0–1** (x from left, y from top of the image), polygons of 3–100 points, ≤ 500 hotspots, stored to 5 decimals.
+```jsonc
+// FloorPlan
+{ "id", "projectId", "kind": "floor"|"master", "blockId", "floors": [3,4,5], "title", "titleBn",
+  "mediaId", "image": Media, "imageWidth", "imageHeight", "sortOrder", "version",
+  "floor": 3,                                   // resolved floor (floor plans)
+  "hotspots": [{ "key", "label", "unitId"|null, "position"|null, "blockId"|null, "points": [[0.1,0.2], …],
+                 "target": { "type": "unit", "unit": Unit|null } | { "type": "block", "block": Block & { inventory } } | null }] }
+```
+- `kind: "floor"` (apartment): `blockId` + `floors[]` required. A **typical** plan covers many floors: hotspots use `position` (`"A"`) and are resolved to the unit at (block, floor, position) for the requested `?floor=`. A hotspot may also point at a fixed `unitId`.
+- `kind: "master"` (plot layout / site plan): hotspots point at a `unitId` (plot) or a `blockId` (building/sector, with its inventory counts). No floors.
+- A hotspot without a target is a label-only area (lift, stairs, park).
+
+`GET /projects/:id/floorplans` (`projects:read`; list without hotspots, `hotspotCount`) · `POST /projects/:id/floorplans` (`projects:write`; `{ kind, blockId?, floors?, title, titleBn?, mediaId (public image), hotspots?, sortOrder? }`) · `GET /floorplans/:id?floor=` (`projects:read`; resolved) · `PATCH /floorplans/:id` (`projects:write`; any of `blockId, floors, title, titleBn, mediaId, hotspots, sortOrder` + `version`; `hotspots` replaces the whole list) · `DELETE /floorplans/:id`.
+
+### Public catalogue (no auth) — `/public/*`
+Published projects only. Blocked/cancelled units are never listed; hold details and internal prices are never sent. Public unit status: `available | held | sold | unavailable`. Responses carry `Cache-Control: public, max-age=30, stale-while-revalidate=60`.
+| Endpoint | Returns |
+|---|---|
+| `GET /public/projects?q&kind&stage&city&area&featured&page&limit` | Cards: `{ id, slug, name, nameBn, kind, stage, featured, tagline(Bn), location, landArea, handoverAt, cover: Media, inventory: { total, available, held, sold, priceFrom } }` (`priceFrom` only when `publicPricing`) |
+| `GET /public/projects/:slug` | Card + `description(Bn), highlights, amenities, approval, gallery, brochure, publicPricing, blocks[], floorPlans[]` |
+| `GET /public/projects/:slug/units?blockId&floor&status=available\|held\|sold&bedrooms&page&limit≤500` | `PublicUnit[]` = unit fields without hold/price internals + `status` (public) + `price` (poisha, only when `publicPricing` and available/held) |
+| `GET /public/units/:id` | `PublicUnit` + `layout: Media` + `project: { id, slug, name, nameBn, kind }` |
+| `GET /public/floorplans/:id?floor=` | Resolved plan; a hidden unit's hotspot has `unitId: null` and `target.unit = { status: "unavailable" }` |
+
+### Real-time (Socket.IO)
+- Connect **directly to the API host** (not through the Next.js rewrite): `io(NEXT_PUBLIC_SOCKET_URL, { auth: { token } })`, dev `http://localhost:5030`.
+- `token` (staff only): `POST /auth/socket-token` 🔒 → `{ token, expiresIn: 60 }`. Use it right away; get a fresh one for every (re)connect. Public visitors connect without a token.
+- Subscribe: `socket.emit('subscribe', { projectId, scope: 'public'|'staff' }, ack)` → `ack({ ok: true })` or `{ ok: false, code: VALIDATION_ERROR|FORBIDDEN|NOT_FOUND|TOO_MANY_SUBSCRIPTIONS }`. `public` = published projects; `staff` needs `units:read`. Re-subscribe after a reconnect. `unsubscribe` takes the same message.
+- Event `unit:status`:
+  - public: `{ unitId, projectId, status: "available|held|sold|unavailable" }`
+  - staff: `{ unitId, projectId, code, status, hold: { byName, until } | null, listPrice, version, at }`
+- Connection errors: `connect_error` with `err.data.code` (`INVALID_SOCKET_TOKEN`, `SESSION_INVALIDATED`, `ORG_NOT_CONFIGURED`).
+
+### Revalidation webhook (API → frontend)
+When published content changes, the API calls the frontend (queued job, retried, bursts coalesced ~3 s):
+```
+POST <FRONTEND_REVALIDATE_URL, default CLIENT_URL/api/revalidate>
+Content-Type: application/json
+X-PrimePlot-Timestamp: 1791792000
+X-PrimePlot-Signature: sha256=<hex HMAC-SHA256(REVALIDATE_SECRET, "<timestamp>.<raw body>")>
+
+{ "tags": ["project:lake-view-residency", "projects"] }
+```
+The frontend route (F2) must: read the raw body, recompute the HMAC with the same `REVALIDATE_SECRET`, compare in constant time, reject timestamps older than 5 minutes, then `revalidateTag()` each tag. Tags: `projects` (listings) and `project:<slug>` (detail, units, floor plans). Disabled when `REVALIDATE_SECRET` is empty.

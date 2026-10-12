@@ -12,6 +12,7 @@ import {
 import * as authService from './auth.service.js';
 import { listSessions, revokeSession } from './session.service.js';
 import { NotFoundError } from '#shared/errors/AppError.js';
+import { signSocketToken, SOCKET_TOKEN_TTL_SEC } from './token.service.js';
 
 export async function login(req, res) {
   const { email, password, remember } = req.valid.body;
@@ -144,4 +145,12 @@ export async function revokeMySession(req, res) {
   if (!done) throw new NotFoundError('Session not found');
   if (req.valid.params.id === req.user.sessionId) clearAuthCookies(res);
   noContent(res);
+}
+
+/** Short-lived token for the Socket.IO handshake (B2 — see token.service.js). */
+export function socketToken(req, res) {
+  ok(res, {
+    token: signSocketToken({ user: req.user, orgId: req.orgId }),
+    expiresIn: SOCKET_TOKEN_TTL_SEC,
+  });
 }

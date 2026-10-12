@@ -4,6 +4,7 @@ import { connectDB, disconnectDB } from '#config/db.js';
 import { createApp } from './src/app.js';
 import { startScheduler, stopScheduler } from '#jobs/index.js';
 import { closeEmail } from '#integrations/email/index.js';
+import { closeSockets, initSockets } from '#sockets/index.js';
 
 const SHUTDOWN_TIMEOUT_MS = 10_000;
 
@@ -23,10 +24,13 @@ async function shutdown(signal, exitCode = 0) {
   force.unref();
 
   try {
-    if (server) {
+    // Socket.IO first: open WebSockets would keep server.close() waiting. io.close() also
+    // closes the HTTP server (stop accepting, finish in-flight requests).
+    await closeSockets();
+    if (server?.listening) {
       await new Promise((resolve) => server.close(resolve)); // stop accepting, finish in-flight
-      server.closeIdleConnections?.();
     }
+    server?.closeIdleConnections?.();
     await stopScheduler(); // finish the in-flight job tick before the DB goes away
     closeEmail();
     await disconnectDB();
@@ -47,6 +51,7 @@ async function main() {
   server = app.listen(env.PORT, () => {
     logger.info(`${env.APP_NAME} API listening on http://localhost:${env.PORT} (${env.NODE_ENV})`);
   });
+  initSockets(server);
   if (env.JOBS_ENABLED) await startScheduler();
   server.on('error', (err) => {
     logger.fatal(
