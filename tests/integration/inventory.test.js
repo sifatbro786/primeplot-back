@@ -310,7 +310,7 @@ describe('price matrix (POST /projects/:id/units/prices)', () => {
       listPrice: 9_000_000 * TK,
     });
     expect(dry.body.data[1].listPrice).toBe(8_450_000 * TK);
-    expect((await Unit.findById(a.id).lean()).listPrice).toBe(8_500_000 * TK); // nothing written
+    expect((await Unit.findOne({ orgId: org._id, _id: a.id }).lean()).listPrice).toBe(8_500_000 * TK); // nothing written
 
     const res = await A.post(url).send({ items });
     expect(res.status).toBe(200);
@@ -333,7 +333,7 @@ describe('price matrix (POST /projects/:id/units/prices)', () => {
     });
     expect(cleared.status).toBe(200);
     expect(cleared.body.data.map((u) => u.listPrice)).toEqual([8_500_000 * TK, 8_500_000 * TK]);
-    const raw = await Unit.findById(a.id).lean();
+    const raw = await Unit.findOne({ orgId: org._id, _id: a.id }).lean();
     expect(raw.rateOverride).toBeUndefined();
   });
 
