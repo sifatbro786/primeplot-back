@@ -9,9 +9,9 @@
 
 | | |
 |---|---|
-| **Current phase** | B2: Projects & Inventory (backend) — **code complete**; owner runs `npm test` (integration needs MongoDB) |
-| **Last completed** | B2 projects/blocks/units, pricing, hold machine, floor plans, Socket.IO, public API, revalidation (2026-10-12) |
-| **Next step** | Owner: `npm install` + `npm test` + `npm run seed -- --sync-indexes` → F3 Dashboard Inventory (or F2 public site) |
+| **Current phase** | F3: Dashboard Inventory — **step 1 code complete** (step 2: floor-plan/hotspot editor, price matrix, gallery) |
+| **Last completed** | F3.1 projects, live unit grid, unit drawer, bulk generator, rate card (2026-10-12) |
+| **Next step** | Owner: `npm install` in both repos, `npm test` (backend), try F3.1 against the real API → F3 step 2 |
 | **Blocker** | None. D1/D3/D4 still open (not blocking F2/F3) |
 
 ---
@@ -93,10 +93,12 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [ ] Lead forms (honeypot, retry for cold start), SEO, JSON-LD, sitemap, `/api/revalidate`
 
 ### F3: Dashboard Inventory (Frontend)
-- [ ] Projects/blocks/floors CRUD
-- [ ] Unit grid (elevation view) + plot map view, real-time
-- [ ] Hotspot editor (draw polygons, link units)
-- [ ] Price matrix editor
+- [x] Projects list/create/details (cover, location, land katha/decimal, approval, website flags, amenities), buildings/blocks CRUD
+- [x] Unit grid (building elevation: floors × positions, ground line, basements) + plot strips by road, real-time over Socket.IO
+- [x] Unit drawer: status + hold/release/extend/block/unblock, details (sft + sq m, katha + decimal), itemised price, edit, delete; bulk generator (floors × positions / plot ranges)
+- [x] Rate card editor (apartment + plot)
+- [ ] Hotspot editor (draw polygons, link units) + floor/master plan viewer (step 2)
+- [ ] Price matrix editor (per-unit overrides in bulk) + gallery (step 2)
 
 ### B3: Leads & CRM (Backend)
 - [ ] Lead model, phone normalization, dedupe/merge
@@ -160,6 +162,18 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 ---
 
 ## 📝 Session Log (newest first)
+
+### 2026-10-12 (6): seed fix + F3 step 1 — Dashboard Inventory
+- **Backend:** `npm run seed -- --sync-indexes` alone now only syncs indexes (no org/admin arguments needed).
+- **Frontend (new):** `/dashboard/projects` (list with inventory strip, filters, create drawer with slug preview), `/dashboard/projects/[id]` (tabs: Inventory · Details · Rate card), `/dashboard/units` (live inventory index). Nav: Projects and Inventory are live.
+  - Inventory: building tabs, status filter with counts, live badge; apartment elevation grid (empty slots → add unit there), plot strips grouped by road; unit drawer (hold with duration/note, release by holder or `units:write`, extend, block with reason, unblock, sold-field locks, itemised price lines, delete with inline confirm); building/block drawer; bulk generator (floors × positions with per-position template / plot number range with road + area; skip existing; ≤ 500).
+  - Details form (dirty fields only + `version`), cover upload (public WebP), land area in katha/decimal with live conversion preview. Rate card editor in taka → poisha, road tiers, facing premiums, corner (sft or %), parking, fixed charges.
+  - `lib/socket.js` (one shared Socket.IO connection, fresh 60 s token on every connect, resubscribe + refetch after reconnect), `components/inventory/queries.js` (query keys, live delta → cache), `lib/format` area + taka helpers, `Segmented` primitive, `api.put`. New dependency `socket.io-client`; new env `NEXT_PUBLIC_SOCKET_URL`.
+  - BN/EN strings for projects, inventory and pricing.
+- **Bug found and fixed in testing:** clicking "Edit" in the unit drawer submitted the form at once (React reused the clicked button as the new submit button) → footer buttons now have distinct keys.
+- **Verified in sandbox** against a mock API that reuses the real backend pricing/area/status modules + Socket.IO: 19 Playwright flows (create apartment + plot projects, buildings, bulk 30 units, single unit from an empty slot, rate card → 31 units re-priced, price breakdown, hold/release/block/unblock, live update from another user, sold-field lock + edit, details/publish with katha↔decimal preview, plots per decimal priced per katha, English locale, 390 px no overflow, executive permissions). ESLint, esbuild, `next build` (fonts stubbed) clean.
+- **Not verified:** the real API end to end (sandbox has no MongoDB) — owner checks.
+- Known limit: two components subscribing to the same project share one room; unsubscribing one drops the other (only one subscriber exists today).
 
 ### 2026-10-12 (5): B2 Projects & Inventory — code complete
 **Owner decisions:** area units (see Resolved decisions). D4 still open — B2 follows the proposed v1 scope.
