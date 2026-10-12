@@ -9,9 +9,9 @@
 
 | | |
 |---|---|
-| **Current phase** | F3: Dashboard Inventory — **step 1 code complete** (step 2: floor-plan/hotspot editor, price matrix, gallery) |
-| **Last completed** | F3.1 projects, live unit grid, unit drawer, bulk generator, rate card (2026-10-12) |
-| **Next step** | Owner: `npm install` in both repos, `npm test` (backend), try F3.1 against the real API → F3 step 2 |
+| **Current phase** | F3: Dashboard Inventory — **code complete** (step 1 + step 2). Next: F2 public site or B3 Leads & CRM (owner picks) |
+| **Last completed** | F3.2 plans (hotspot editor + live plan viewer), price list (bulk per-unit prices), gallery + brochure; backend `POST /projects/:id/units/prices` (2026-10-12) |
+| **Next step** | Owner: `npm test` (backend — new price-matrix integration tests), restart both servers, try Plans / Price list / Gallery against the real API → then choose F2 or B3 |
 | **Blocker** | None. D1/D3/D4 still open (not blocking F2/F3) |
 
 ---
@@ -97,8 +97,8 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] Unit grid (building elevation: floors × positions, ground line, basements) + plot strips by road, real-time over Socket.IO
 - [x] Unit drawer: status + hold/release/extend/block/unblock, details (sft + sq m, katha + decimal), itemised price, edit, delete; bulk generator (floors × positions / plot ranges)
 - [x] Rate card editor (apartment + plot)
-- [ ] Hotspot editor (draw polygons, link units) + floor/master plan viewer (step 2)
-- [ ] Price matrix editor (per-unit overrides in bulk) + gallery (step 2)
+- [x] Hotspot editor (rectangle + polygon tools, move/reshape, undo/redo, link to position/unit/building/plot or label) + floor/master plan viewer (live status colours, floor switcher, zoom)
+- [x] Price list: per-unit rate overrides + adjustments in bulk with server dry-run preview (`POST /projects/:id/units/prices`) + gallery (multi-upload, reorder, cover) + brochure PDF
 
 ### B3: Leads & CRM (Backend)
 - [ ] Lead model, phone normalization, dedupe/merge
@@ -162,6 +162,19 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 ---
 
 ## 📝 Session Log (newest first)
+
+### 2026-10-12 (7): F3 step 2 — plans, price list, gallery
+- **Backend (new endpoint):** `POST /projects/:id/units/prices` (`pricing:write`) — set/clear `rateOverride` and `priceAdjustment` on ≤ 500 units in one transaction; every item carries the unit `version` (`409 STALE_VERSION` lists the unit codes), sold units → `409 UNIT_LOCKED`, `dryRun: true` returns the would-be prices without writing. Writes bump `version`, send `unit:status` deltas (new `listPrice`) and revalidate the website. Audit `unit.price_bulk_update`. Files: `units/unit.validation.js` (`zUnitPrices`), `units/unit.service.js` (`setUnitPrices`), `projects/project.routes.js`, `docs/API.md`. Tests: 2 integration cases in `inventory.test.js`, 1 schema case in `b2-contracts.test.js`.
+- **Frontend — Plans tab** (`/dashboard/projects/[id]/plans`, `/plans/[planId]`):
+  - List grouped as site/layout plans + floor plans per building; create/edit drawer (drawing upload as public `floor_plan`/`master_plan` media, title EN/BN, building, floor picker with Shift-range and "already covered" dots). Abandoned uploads are deleted.
+  - Live view: one SVG (image + shapes share the image's pixel space), status colours from the same tokens as the grid, hatched blocked units, tooltip (code, status, size, price, holder), floor switcher for typical plans, zoom, click → unit drawer, building hotspot → inventory tab (`?block=`). Live recolour from the existing Socket.IO subscription (no refetch).
+  - Editor: Select / Shape / Rectangle tools (V/P/R), drag to move, corner handles, double-click edge adds a corner, Alt-click removes, Ctrl+D duplicate, Delete, Ctrl+Z / Ctrl+Shift+Z (100 steps), new floor-plan areas auto-link to the next free position; side panel to link (position · unit · building/plot · label only), "not on the plan yet" chips, warnings for unlinked/duplicate links, save with `version`, unsaved-changes guard.
+- **Frontend — Price list tab** (`/prices`): per building/sector table (rate override + adjustment + note per unit), Shift-click range select, bulk actions (set rate, rate ± %, adjustment, back to card), live dry-run preview with ± difference, stale-unit reload that drops only those edits, sold rows locked, read-only for non-admins, other tabs locked while there are edits.
+- **Frontend — Gallery tab** (`/gallery`): drag-and-drop multi-upload (2 at a time), reorder by drag or arrows, set cover, remove, brochure PDF; one PATCH with `version`; discarded uploads deleted.
+- Shared: `components/media/upload.js`, `SmartImage` `fit="contain"`, `useAllUnits` / `useFloorPlans` / `useFloorPlan` queries, BN/EN strings (`plans`, `priceMatrix`, `gallery`, `media`); Bangla counts use Bangla digits.
+- **Verified in sandbox** against a mock API that reuses the real pricing/area/permission modules + Socket.IO: 4 Playwright suites, 67 checks (plan create → editor, rectangle/polygon drawing, auto-link, undo/redo, move, save + normalized coords, live recolour on another user's hold, hatched blocked unit, building → inventory link, plot layout plan, price-matrix +5 % preview and exact totals, stale-version reload, clear back to card, executive read-only, gallery upload/reorder/cover/brochure/discard, BN at 390 px without overflow). ESLint, esbuild, `next build` (fonts stubbed) clean; backend ESLint + Prettier clean, 63 unit tests pass.
+- **Not verified:** the new backend endpoint against real MongoDB (sandbox still can't download `mongod`) → owner runs `npm test`.
+- Known limits: the audit log viewer doesn't have labels/filters for project/unit/plan actions yet (raw action names show); plan drawings must be images (export a PDF page to PNG/JPG first); a typical plan's areas follow the position, so floors with a different layout need their own plan.
 
 ### 2026-10-12 (6): seed fix + F3 step 1 — Dashboard Inventory
 - **Backend:** `npm run seed -- --sync-indexes` alone now only syncs indexes (no org/admin arguments needed).

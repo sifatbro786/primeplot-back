@@ -100,6 +100,33 @@ export const zUnitPatch = z
 
 export const zUnitBulk = z.object({ units: z.array(zUnitCreate).min(1).max(500) }).strict();
 
+/**
+ * Price matrix: per-unit rate overrides / adjustments for many units at once (pricing:write).
+ * Each item carries the unit's `version`; `null` clears the override/adjustment.
+ */
+export const zUnitPrices = z
+  .object({
+    dryRun: z.boolean().optional(),
+    items: z
+      .array(
+        z
+          .object({
+            id: zid,
+            version: zVersion,
+            rateOverride: unitFields.rateOverride.optional(),
+            priceAdjustment: unitFields.priceAdjustment.optional(),
+          })
+          .strict()
+          .refine((i) => i.rateOverride !== undefined || i.priceAdjustment !== undefined, {
+            message: 'Give rateOverride and/or priceAdjustment',
+          }),
+      )
+      .min(1)
+      .max(500)
+      .refine((a) => new Set(a.map((i) => i.id)).size === a.length, 'Duplicate unit'),
+  })
+  .strict();
+
 export const zUnitListQuery = {
   blockId: zid.optional(),
   floor: z.coerce.number().int().min(-5).max(200).optional(),

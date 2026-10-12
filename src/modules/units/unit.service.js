@@ -605,6 +605,116 @@ export async function updateUnit({ orgId, id, patch, user, ctx }) {
   return toUnit(doc.toObject());
 }
 
+/**
+ * Price matrix (pricing:write): set/clear `rateOverride` and `priceAdjustment` on up to 500
+ * units of one project, all-or-nothing. Every item carries the unit's `version` (a hold or an
+ * edit since the matrix loaded → 409 STALE_VERSION); sold units → 409 UNIT_LOCKED.
+ * `dryRun` returns the would-be prices without writing (live preview in the editor).
+ */
+export async function setUnitPrices({ orgId, projectId, items, dryRun = false, ctx }) {
+  const project = await projects.getProject(orgId, projectId);
+  const ids = items.map((i) => oid(i.id));
+  const rows = await Unit.find({ orgId, projectId: project._id, _id: { $in: ids } }).lean();
+  const byId = new Map(rows.map((u) => [String(u._id), u]));
+
+  const missing = items.flatMap((it, i) =>
+    byId.has(it.id) ? [] : [{ path: `items.${i}.id`, message: 'Unit not in this project' }],
+  );
+  if (missing.length) throw new NotFoundError('Some units were not found', { details: missing });
+  const sold = items.flatMap((it, i) =>
+    isSold(byId.get(it.id).status)
+      ? [{ path: `items.${i}`, message: `${byId.get(it.id).code} is sold` }]
+      : [],
+  );
+  if (sold.length) {
+    throw new ConflictError('Sold units keep their booked price', {
+      code: 'UNIT_LOCKED',
+      details: sold,
+    });
+  }
+  const stale = items.flatMap((it, i) =>
+    (byId.get(it.id).__v ?? 0) !== it.version
+      ? [{ path: `items.${i}.version`, message: byId.get(it.id).code }]
+      : [],
+  );
+  if (stale.length) throw Object.assign(staleVersion(), { details: stale });
+
+  const plan = items.map((it) => {
+    const u = byId.get(it.id);
+    const next = { ...u };
+    if (it.rateOverride !== undefined) next.rateOverride = it.rateOverride ?? undefined;
+    if (it.priceAdjustment !== undefined) {
+      next.priceAdjustment = it.priceAdjustment?.amount ? it.priceAdjustment : undefined;
+    }
+    const { listPrice } = computePrice(next, project.pricing);
+    return { it, u, next, listPrice };
+  });
+
+  if (dryRun) {
+    return {
+      dryRun: true,
+      items: plan.map(({ u, next, listPrice }) => ({
+        id: String(u._id),
+        code: u.code,
+        rateOverride: next.rateOverride ?? null,
+        priceAdjustment: next.priceAdjustment ?? null,
+        previousListPrice: u.listPrice ?? null,
+        listPrice,
+      })),
+    };
+  }
+
+  const now = new Date();
+  const changes = [];
+  const ops = plan.map(({ it, u, next, listPrice }) => {
+    const $set = { listPrice, priceComputedAt: now };
+    const $unset = {};
+    for (const f of PRICE_FIELDS) {
+      if (it[f] === undefined) continue;
+      if (next[f] == null) $unset[f] = 1;
+      else $set[f] = next[f];
+    }
+    const from = {
+      rateOverride: u.rateOverride ?? null,
+      adjustment: u.priceAdjustment?.amount ?? null,
+    };
+    const to = {
+      rateOverride: next.rateOverride ?? null,
+      adjustment: next.priceAdjustment?.amount ?? null,
+    };
+    if (JSON.stringify(from) !== JSON.stringify(to) || listPrice !== (u.listPrice ?? null)) {
+      changes.push({
+        code: u.code,
+        from: { ...from, listPrice: u.listPrice ?? null },
+        to: { ...to, listPrice },
+      });
+    }
+    return {
+      updateOne: {
+        // Version + not-sold in the filter: a hold/booking that lands mid-request loses nothing.
+        filter: { orgId, _id: u._id, __v: it.version, status: { $nin: SOLD_STATUSES } },
+        update: { $set, ...(Object.keys($unset).length && { $unset }), $inc: { __v: 1 } },
+      },
+    };
+  });
+
+  await withTransaction(async (session) => {
+    const res = await Unit.bulkWrite(ops, { session, ordered: true });
+    if (res.matchedCount !== ops.length) throw staleVersion();
+    await audit(ctx, 'unit.price_bulk_update', {
+      entity: { type: 'Project', id: project._id },
+      meta: { count: ops.length, changed: changes.length, units: changes.slice(0, 500) },
+      session,
+    });
+  });
+
+  const updated = await Unit.find({ orgId, _id: { $in: ids } }).lean();
+  const order = new Map(items.map((it, i) => [it.id, i]));
+  updated.sort((a, b) => order.get(String(a._id)) - order.get(String(b._id)));
+  await announceUnitChanges(orgId, updated);
+  return { dryRun: false, changed: changes.length, items: updated.map((u) => toUnit(u, { now })) };
+}
+
 export async function deleteUnit({ orgId, id, ctx }) {
   const doc = await Unit.findOne({ orgId, _id: id });
   if (!doc) throw new NotFoundError('Unit not found');

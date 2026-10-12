@@ -7,7 +7,12 @@ import { offsetQuery } from '#shared/utils/pagination.js';
 import { authenticate, authorize } from '#modules/auth/auth.middleware.js';
 import { auditContext } from '#modules/audit/audit.service.js';
 import * as units from '#modules/units/unit.service.js';
-import { zUnitBulk, zUnitCreate, zUnitListQuery } from '#modules/units/unit.validation.js';
+import {
+  zUnitBulk,
+  zUnitCreate,
+  zUnitListQuery,
+  zUnitPrices,
+} from '#modules/units/unit.validation.js';
 import * as floorplans from '#modules/floorplans/floorplan.service.js';
 import { zFloorPlanCreate } from '#modules/floorplans/floorplan.service.js';
 import * as projects from './project.service.js';
@@ -208,6 +213,23 @@ router.post(
       ctx: auditContext(req),
     });
     created(res, result.items, { meta: { created: result.created } });
+  },
+);
+
+// Price matrix: per-unit overrides in bulk (admin pricing permission).
+router.post(
+  '/:id/units/prices',
+  authorize(P.PRICING_WRITE),
+  validate({ ...byId, body: zUnitPrices }),
+  async (req, res) => {
+    const result = await units.setUnitPrices({
+      orgId: req.orgId,
+      projectId: req.valid.params.id,
+      items: req.valid.body.items,
+      dryRun: req.valid.body.dryRun ?? false,
+      ctx: auditContext(req),
+    });
+    ok(res, result.items, { meta: { dryRun: result.dryRun, changed: result.changed ?? null } });
   },
 );
 

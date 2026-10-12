@@ -284,6 +284,93 @@ describe('units & pricing', () => {
   });
 });
 
+describe('price matrix (POST /projects/:id/units/prices)', () => {
+  it('dry run previews, commit writes all-or-nothing; null clears; needs pricing:write', async () => {
+    const { project, block } = await apartmentProject();
+    await setApartmentPricing(project.id);
+    const a = await unit(project.id, block.id, { floor: 2, position: 'A', saleableSqft: 1000 });
+    const b = await unit(project.id, block.id, { floor: 2, position: 'B', saleableSqft: 1000 });
+    const url = `/api/v1/projects/${project.id}/units/prices`;
+
+    const mg = await loginAgent(request, app, manager);
+    expect(
+      (await mg.post(url).send({ items: [{ id: a.id, version: a.version, rateOverride: 1 }] }))
+        .status,
+    ).toBe(403);
+
+    const items = [
+      { id: a.id, version: a.version, rateOverride: 9_000 * TK },
+      { id: b.id, version: b.version, priceAdjustment: { amount: -50_000 * TK, note: 'Launch' } },
+    ];
+    const dry = await A.post(url).send({ dryRun: true, items });
+    expect(dry.status).toBe(200);
+    expect(dry.body.meta.dryRun).toBe(true);
+    expect(dry.body.data[0]).toMatchObject({
+      previousListPrice: 8_500_000 * TK,
+      listPrice: 9_000_000 * TK,
+    });
+    expect(dry.body.data[1].listPrice).toBe(8_450_000 * TK);
+    expect((await Unit.findById(a.id).lean()).listPrice).toBe(8_500_000 * TK); // nothing written
+
+    const res = await A.post(url).send({ items });
+    expect(res.status).toBe(200);
+    expect(res.body.meta.changed).toBe(2);
+    expect(res.body.data[0]).toMatchObject({ rateOverride: 9_000 * TK, version: a.version + 1 });
+    expect(res.body.data[1].priceAdjustment).toEqual({ amount: -50_000 * TK, note: 'Launch' });
+
+    // the old versions are now stale → whole batch refused, nothing changes
+    const stale = await A.post(url).send({
+      items: [{ id: a.id, version: a.version, rateOverride: null }],
+    });
+    expect(stale.status).toBe(409);
+    expect(stale.body.error.code).toBe('STALE_VERSION');
+
+    const cleared = await A.post(url).send({
+      items: [
+        { id: a.id, version: a.version + 1, rateOverride: null },
+        { id: b.id, version: b.version + 1, priceAdjustment: null },
+      ],
+    });
+    expect(cleared.status).toBe(200);
+    expect(cleared.body.data.map((u) => u.listPrice)).toEqual([8_500_000 * TK, 8_500_000 * TK]);
+    const raw = await Unit.findById(a.id).lean();
+    expect(raw.rateOverride).toBeUndefined();
+  });
+
+  it('sold units and units of another project are refused', async () => {
+    const { project, block } = await apartmentProject();
+    const other = await A.post('/api/v1/projects').send({ name: 'Other Tower', kind: 'apartment' });
+    const ob = await A.post(`/api/v1/projects/${other.body.data.id}/blocks`).send({
+      kind: 'building',
+      code: 'Z',
+      name: 'Z',
+      lowestFloor: 0,
+      highestFloor: 9,
+    });
+    const foreign = await unit(other.body.data.id, ob.body.data.id);
+    const u = await unit(project.id, block.id);
+    const url = `/api/v1/projects/${project.id}/units/prices`;
+
+    const nf = await A.post(url).send({
+      items: [{ id: foreign.id, version: foreign.version, rateOverride: 1 }],
+    });
+    expect(nf.status).toBe(404);
+
+    await unitService.transitionUnit({
+      orgId: org._id,
+      unitId: u.id,
+      from: ['available'],
+      to: 'booked',
+      ctx: { orgId: org._id, actor: { id: String(admin._id), kind: 'user' } },
+    });
+    const sold = await A.post(url).send({
+      items: [{ id: u.id, version: u.version + 1, rateOverride: 1 }],
+    });
+    expect(sold.status).toBe(409);
+    expect(sold.body.error.code).toBe('UNIT_LOCKED');
+  });
+});
+
 describe('status machine', () => {
   it('concurrent holds: exactly one wins', async () => {
     const { project, block } = await apartmentProject();

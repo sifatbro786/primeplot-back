@@ -9,7 +9,7 @@ import {
 } from '#modules/auth/token.service.js';
 import { zHotspot } from '#modules/floorplans/floorplan.service.js';
 import { zApartmentPricing, zPlotPricing } from '#modules/projects/project.validation.js';
-import { zBlockUnit, zUnitCreate } from '#modules/units/unit.validation.js';
+import { zBlockUnit, zUnitCreate, zUnitPrices } from '#modules/units/unit.validation.js';
 
 describe('revalidation signature', () => {
   it('is HMAC-SHA256 over "<ts>.<body>"', () => {
@@ -96,5 +96,35 @@ describe('B2 request schemas', () => {
     expect(zUnitCreate.safeParse({ blockId: b, status: 'booked' }).success).toBe(false); // never via body
     expect(zBlockUnit.safeParse({ reason: 'other' }).success).toBe(false);
     expect(zBlockUnit.safeParse({ reason: 'other', note: 'Owner request' }).success).toBe(true);
+  });
+});
+
+describe('price matrix schema', () => {
+  const id = '64b000000000000000000001';
+  it('needs at least one price field per item; null clears; ids unique', () => {
+    expect(zUnitPrices.safeParse({ items: [{ id, version: 0 }] }).success).toBe(false);
+    expect(zUnitPrices.safeParse({ items: [{ id, version: 0, rateOverride: null }] }).success).toBe(
+      true,
+    );
+    expect(
+      zUnitPrices.safeParse({
+        dryRun: true,
+        items: [{ id, version: 2, priceAdjustment: { amount: -500, note: 'x' } }],
+      }).success,
+    ).toBe(true);
+    expect(
+      zUnitPrices.safeParse({
+        items: [
+          { id, version: 0, rateOverride: 1 },
+          { id, version: 1, rateOverride: 2 },
+        ],
+      }).success,
+    ).toBe(false);
+    expect(zUnitPrices.safeParse({ items: [{ id, version: 0, rateOverride: -1 }] }).success).toBe(
+      false,
+    );
+    expect(
+      zUnitPrices.safeParse({ items: [{ id, version: 0, rateOverride: 1, code: 'X' }] }).success,
+    ).toBe(false);
   });
 });

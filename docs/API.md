@@ -312,6 +312,7 @@ Rules: floor rise applies from `fromFloor` upward (`(floor − fromFloor + 1) ×
 | `GET /projects/:id/units?blockId&floor&status&bedrooms&q&page&limit` | `units:read` | `status` also accepts `sold` (booked…handed over). `limit` up to 1000 (whole building for the grid). Sorted block → floor (top first) → sortOrder → code |
 | `POST /projects/:id/units` | `units:write` | `blockId` required. Apartment: `floor` required; `code` defaults to `<block>-<floor><position>` (e.g. `A-5B`). Plot: `code` defaults to `<block>-<plotNo>`. `rateOverride`/`priceAdjustment` need `pricing:write` |
 | `POST /projects/:id/units/bulk` | `units:write` | `{ units: [ …up to 500 ] }` → `201 Unit[]`, `meta.created`. All-or-nothing; errors point at `units.<i>.<field>` |
+| `POST /projects/:id/units/prices` | `pricing:write` (admin) | **Price matrix** (F3.2). `{ dryRun?, items: [{ id, version, rateOverride?: poisha\|null, priceAdjustment?: { amount, note? }\|null }] }` (1–500, unique ids, each item sets at least one field; `null` clears). All-or-nothing. `dryRun: true` → `200 [{ id, code, rateOverride, priceAdjustment, previousListPrice, listPrice }]`, nothing written. Otherwise → `200 Unit[]` (same order) + `meta: { dryRun: false, changed }`; units get a new `version` and a `unit:status` delta (new `listPrice`) goes to staff sockets. Errors: unit of another project → `404` (`details[].path = items.<i>.id`); sold unit → `409 UNIT_LOCKED` (`items.<i>`); any old `version` → `409 STALE_VERSION` (`details[].path = items.<i>.version`, `message` = unit code). `rateOverride` is per sq ft (apartment) or per the rate card's `rateUnit` (plot) |
 | `GET /units/:id` | `units:read` | Unit + `price` breakdown |
 | `PATCH /units/:id` | `units:write` | Any unit field + `version`. Sold units: `blockId, floor, position, saleableSqft, landArea, parkingSlots, facing, isCorner, roadWidthFt, rateOverride, priceAdjustment` → `409 UNIT_LOCKED` |
 | `DELETE /units/:id` | `units:write` | Only `available`/`blocked` (`409 UNIT_IN_USE`) |
@@ -326,7 +327,7 @@ Rules: floor rise applies from `fromFloor` upward (`(floor − fromFloor + 1) ×
 | `POST /units/:id/unblock` | `units:block` | → `available` |
 Booking/allotment/registration/hand-over/cancellation come with B4 (same machine: `available→held→booked→allotted→registered→handed_over`, `booked|allotted→cancelled→available`).
 
-Audit actions: `project.create|update|pricing_update|delete`, `block.create|update|delete`, `unit.create|bulk_create|update|delete|hold|hold_extend|release|block|unblock|hold_expired`, `floorplan.create|update|delete`.
+Audit actions: `project.create|update|pricing_update|delete`, `block.create|update|delete`, `unit.create|bulk_create|update|price_bulk_update|delete|hold|hold_extend|release|block|unblock|hold_expired`, `floorplan.create|update|delete`.
 
 ### Floor plans 🔒
 Coordinates are **normalized 0–1** (x from left, y from top of the image), polygons of 3–100 points, ≤ 500 hotspots, stored to 5 decimals.
