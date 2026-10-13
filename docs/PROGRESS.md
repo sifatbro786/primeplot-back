@@ -11,7 +11,7 @@
 |---|---|
 | **Current phase** | B3 + F4: Leads & CRM — **backend (B3.1 + B3.2) and CRM UI (F4.1–F4.4) code complete**. Next: owner end-to-end check, then **B2b + F3b** (site content + construction updates) |
 | **Last completed** | F4: leads table + Kanban, lead drawer, notification bell, My tasks, CRM settings, integration settings, public `/landowners` page; website lead forms switched on (2026-10-13) |
-| **Next step** | Owner: backend `npm run seed -- --sync-indexes` + `npm test` (if not done after B3.2); frontend `npm install` (adds `@dnd-kit/core`), set `NEXT_PUBLIC_LEADS_ENABLED=true` in `.env`, then the F4 end-to-end check (see session log 8). Then **B2b + F3b** |
+| **Next step** | Owner: backend `npm run seed -- --sync-indexes` + `npm test` (if not done after B3.2); frontend `npm install` (adds `@dnd-kit/core`), set `NEXT_PUBLIC_LEADS_ENABLED=true` in `.env`; `npm run seed:crm` (demo CRM data, prints a test guide), then the F4 end-to-end check (see session log 9). Then **B2b + F3b** |
 | **Blocker** | None. D1/D3/D4 still open (not blocking F2/F3) |
 
 ---
@@ -191,6 +191,13 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 ---
 
 ## 📝 Session Log (newest first)
+
+### 2026-10-14 (9): CRM demo data — `npm run seed:crm`
+- **Owner request:** typing test data by hand takes too long → seed it.
+- **`scripts/seed-crm.js`** (dev only, refuses `NODE_ENV=production`): 3 demo staff (`nadia@` manager, `sumi@` / `rakib@` executives `@demo.primeplot.test`, password printed once or `--password`); 83 buyer + 7 landowner leads in every stage (buyer "New" > 50 cards → "show more"; table > 50 rows → "load more"), timelines (created, Meta form, auto-assign, auto-reply, calls with outcomes, notes, stage changes, repeat enquiries, SLA escalation, tasks), 23 tasks (overdue / later today / tomorrow / next days, one reminder ~3 min after seeding → bell), 10 notifications (every type), 49 SMS (auto-replies sent / failed / skipped for a UK number, test SMS sent / failed). Links leads to `seed:demo` projects when they exist.
+- Named test scenarios printed at the end (SLA running / missed / escalated, overdue task, merge pair, lost → reopen, duplicate phone, NRB number, executive view).
+- Demo leads are recognised by phone (`+8801999…`, `+447700900…`); `--reset` deletes only those leads and their activities, tasks, notifications and SMS (staff kept). Times are relative to the run → `--reset` refreshes "today / overdue / SLA". Documents pass schema validation, then go in with raw inserts so back-dated `createdAt` stays.
+- **Checked:** ESLint + `node --check`; run end to end against stubbed Mongoose (no MongoDB here) — 90 leads / 438 activities / 23 tasks / 49 SMS / 10 notifications validated; unique ranks and open keys, SLA states, reminder timing, closed leads end on their stage, reset path; leads pass the real `toLead()` serializer.
 
 ### 2026-10-13 (8): F4 — CRM UI (F4.1–F4.4 together)
 - **F4.1 Leads + Kanban:** `/dashboard/leads` (table, filters + preset views in the URL — all / mine / unassigned / response overdue / follow-up today / follow-up overdue, multi-select bulk assign, CSV export for `leads:read_all`, cursor "load more") and `/dashboard/pipeline` (buyer / landowner tabs, `@dnd-kit/core` drag between and within columns with optimistic update; `STALE_VERSION`/`STALE_POSITION` → snap back + reload; lost stage → lost-reason dialog; per-column "show more"; phone: one column at a time via tabs + each card's "Move to…" menu). SLA chip (time left / late, text + tone), source icon, owner, next follow-up on every card/row. Manual lead create drawer (`DUPLICATE_LEAD` → "open that lead").

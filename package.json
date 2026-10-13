@@ -21,6 +21,7 @@
     "start": "node server.js",
     "seed": "node scripts/seed.js",
     "seed:demo": "node scripts/seed-demo.js",
+    "seed:crm": "node scripts/seed-crm.js",
     "email:check": "node scripts/email-check.js",
     "sms:check": "node scripts/sms-check.js",
     "meta:connect": "node scripts/meta-connect.js",
