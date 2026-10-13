@@ -20,6 +20,9 @@ import { getProjectAccess } from '#modules/projects/project.service.js';
  *            version).
  * Event:     'unit:status'  (one per changed unit)
  *
+ * Personal channel (B3): a socket with a token joins its user room automatically and receives
+ *            'notification' events (the same objects GET /notifications returns).
+ *
  * Rooms are org-scoped. Emitting is a no-op until initSockets() runs (tests, scripts).
  */
 const log = logger.child({ module: 'sockets' });
@@ -28,6 +31,7 @@ const MAX_ROOMS_PER_SOCKET = 20;
 let io = null;
 
 const room = (orgId, projectId, scope) => `o:${orgId}:p:${projectId}:${scope}`;
+const userRoom = (orgId, userId) => `o:${orgId}:u:${userId}`;
 
 const subscribeMsg = z
   .object({ projectId: zid, scope: z.enum(['public', 'staff']).default('public') })
@@ -63,13 +67,16 @@ export function initSockets(httpServer) {
   });
 
   io.on('connection', (socket) => {
+    if (socket.data.user) socket.join(userRoom(socket.data.orgId, socket.data.user.id));
+
     socket.on('subscribe', async (raw, ack) => {
       const reply = typeof ack === 'function' ? ack : () => {};
       try {
         const parsed = subscribeMsg.safeParse(raw ?? {});
         if (!parsed.success) return reply({ ok: false, code: 'VALIDATION_ERROR' });
         const { projectId, scope } = parsed.data;
-        if (socket.rooms.size - 1 >= MAX_ROOMS_PER_SOCKET) {
+        // Own socket room + personal room don't count towards the limit.
+        if (socket.rooms.size - (socket.data.user ? 2 : 1) >= MAX_ROOMS_PER_SOCKET) {
           return reply({ ok: false, code: 'TOO_MANY_SUBSCRIPTIONS' });
         }
 
@@ -121,4 +128,10 @@ export function emitUnitStatus(orgId, projectId, changes) {
     staffRoom.emit('unit:status', c.staff);
     publicRoom.emit('unit:status', c.public);
   }
+}
+
+/** Push an event to every open socket of one user (no-op before initSockets / in tests). */
+export function emitToUser(orgId, userId, event, payload) {
+  if (!io) return;
+  io.to(userRoom(String(orgId), String(userId))).emit(event, payload);
 }

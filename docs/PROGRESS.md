@@ -9,9 +9,9 @@
 
 | | |
 |---|---|
-| **Current phase** | F2 + F2b: Public site — **code complete**. Lead submit waits for B3. Next: B3 Leads & CRM |
-| **Last completed** | F2b: Privacy + Terms, WhatsApp button, consent-gated GA4/Meta Pixel (IDs from Company settings), OG share cards, unit comparison (2026-10-13) |
-| **Next step** | Owner: backend `npm test` (new org analytics case), restart both apps, enter GA4/Pixel IDs in Company settings › Website analytics, check /privacy, /terms, cookie banner, compare → then B3 |
+| **Current phase** | B3: Leads & CRM — **B3.1 code complete** (core CRM + website form). Next: B3.2 (SMS, auto-reply, SLA escalation, Meta Lead Ads) or F4 CRM UI |
+| **Last completed** | B3.1: leads, dedupe, round-robin, pipeline/Kanban API, activities, tasks + reminders, notifications, `POST /public/leads` (2026-10-13) |
+| **Next step** | Owner: backend `npm install` (new: fractional-indexing) + `npm test` (new `leads.test.js`, 24 cases) + `npm run seed -- --sync-indexes`; frontend `.env` `NEXT_PUBLIC_LEADS_ENABLED=true`, submit the website form → then B3.2 |
 | **Blocker** | None. D1/D3/D4 still open (not blocking F2/F3) |
 
 ---
@@ -26,6 +26,7 @@
 | D4 | v1/v2 split | See ARCHITECTURE §4 (proposed) | Before B2 |
 
 ## ✅ Resolved decisions
+- 2026-10-13: **B3 scope** (owner) — new leads **round-robin** among active sales executives (per-project teams optional; `manual` mode = unassigned queue); first-response **SLA 30 office minutes** (09:00–20:00 Dhaka, Friday off, editable) with manager escalation; customer **auto-reply SMS on** (editable BN/EN text, can be switched off); B3 split into **B3.1** (core CRM + website form) and **B3.2** (SMS, auto-reply, SLA escalation, Meta Lead Ads)
 - 2026-10-13: **Tracking IDs from the dashboard** (owner) — GA4 Measurement ID + Meta Pixel ID live on the Organization (`analytics`), edited in Company settings, not `.env`. Privacy/Terms use the settings' **legal name** (falls back to the company name); both pages linked from the footer
 - 2026-10-11: single-tenant + `orgId`; apartment + plot; no Redis
 - 2026-10-13: **Public-site extras accepted** (all 8): privacy/terms, WhatsApp button, analytics + consent, OG images, unit comparison → F2b; landowner/JV leads → B3 (+ page in F4); editable site content + construction updates → B2b/F3b. Owner feedback: public pages read too white — colour pass before F2b
@@ -112,14 +113,21 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] Price list: per-unit rate overrides + adjustments in bulk with server dry-run preview (`POST /projects/:id/units/prices`) + gallery (multi-upload, reorder, cover) + brochure PDF
 
 ### B3: Leads & CRM (Backend)
-- [ ] Lead model, phone normalization, dedupe/merge
-- [ ] Assignment rules (round-robin / project / source), SLA (`firstResponseAt`) + escalation job
-- [ ] Pipeline stages (configurable), fractional ranking, optimistic concurrency
-- [ ] Activities, tasks, follow-up reminders
-- [ ] Meta Lead Ads webhook + Graph fetch job + nightly reconcile
-- [ ] SMS adapter (log + BulkSMSBD + SSL Wireless drivers, env-driven), delivery log, auto-reply
-- [ ] `POST /public/leads` for the website form (honeypot + min-fill-time checks, rate limit) — turns on `NEXT_PUBLIC_LEADS_ENABLED`
-- [ ] Landowner / joint-venture leads (owner-approved 2026-10-13): lead type `landowner` with land fields (area, size in katha/decimal, road width, ownership/mutation status, preferred share); own pipeline view; public `/landowners` page + form (frontend in F4)
+**B3.1 — core CRM + website form (code complete 2026-10-13)**
+- [x] Lead model (buyer + landowner), phone normalization (BD + international for NRB buyers), dedupe (one open lead per phone and type, race-safe), repeat enquiries, merge
+- [x] Assignment: round-robin among sales executives, optional per-project teams, manual mode; bulk assign; open tasks follow the lead
+- [x] SLA clock: `slaDueAt` in office hours, `firstResponseAt` (first contact or first move), `slaBreached` filter
+- [x] Pipeline stages per type (configurable, guarded), fractional ranking (Kanban), optimistic concurrency
+- [x] Activities (timeline), tasks, follow-up reminders job, in-app notifications (+ Socket.IO personal channel)
+- [x] `POST /public/leads` (honeypot, min fill time, rate limit) — owner turns on `NEXT_PUBLIC_LEADS_ENABLED`
+- [x] Landowner / joint-venture leads: type `landowner` with land fields, own pipeline (public `/landowners` page + form in F4)
+- [x] CSV export (managers), API contract in `docs/API.md`
+- [~] Tests: unit 18 new ✔ in sandbox; integration `tests/integration/leads.test.js` written — owner runs `npm test`
+
+**B3.2 — integrations (next)**
+- [ ] SMS adapter (log + BulkSMSBD + SSL Wireless drivers, env-driven), delivery log, segment/cost preview, customer auto-reply
+- [ ] SLA escalation job (notify managers when `slaDueAt` passes without a first response)
+- [ ] Meta Lead Ads webhook + Graph fetch job + nightly reconcile (page token encrypted)
 
 ### F4: CRM UI (Frontend)
 - [ ] Leads table (filters, saved views)
@@ -180,6 +188,15 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 ---
 
 ## 📝 Session Log (newest first)
+
+### 2026-10-13 (6): B3.1 — core CRM + website form
+- **Owner decisions:** round-robin, 30-minute office-hours SLA, auto-reply SMS on (setting), B3 split into B3.1/B3.2 (see Resolved decisions).
+- **New modules:** `src/modules/leads/` (`lead.model`, `leadStage.model`, `leadActivity.model`, `leadTask.model`, `leadSettings.model`, `lead.service`, `followup.service`, `pipeline.service`, `sla.js`, `lead.validation`, `lead.routes`, `publicLead.routes`), `src/modules/notifications/` (model, service, routes). Job `leads.taskReminders` (every minute).
+- **Shared:** `shared/utils/rank.js` (fractional ranks via the `fractional-indexing` package — new dependency), `normalizePhone()` in `shared/utils/phone.js` (international numbers), `emitToUser()` + personal socket room in `sockets/index.js`, lookup helpers `listActiveStaffWith`/`userNames` (users), `projectSummaries` (projects), `unitRefs` (units). Routes mounted in `src/routes.js` (`/leads`, `/notifications`, `/public/leads` before the cached `/public`). New collections registered for `seed --sync-indexes`.
+- **Design notes:** dedupe uses an `openKey` (`type:phone`) with a unique partial index — two identical enquiries at the same instant make one lead; the loser becomes an enquiry. Round-robin moves its cursor with compare-and-set. Kanban moves write one document (rank between neighbours); same-instant ties are split on the next move. Executives get 404 for leads that aren't theirs. CSV export neutralises spreadsheet formulas.
+- **Verified in sandbox:** ESLint/Prettier, `npm run check`, 81 unit tests (18 new: rank fuzz 3,000 random inserts + 20,000 top-inserts stay ≤ 6 chars, SLA office-hours cases incl. Friday and evening spill-over, BD/international phones, request schemas, permissions), app boot with the new routes, Mongoose validation of every new document shape.
+- **Not verified:** anything needing MongoDB (sandbox still can't download `mongod`) → owner runs `npm test` (`tests/integration/leads.test.js`, 24 cases: intake, round-robin, repeat enquiry, 6 simultaneous submissions → 1 lead, bots, landowner, manual mode, visibility, duplicates, NRB numbers, moves/lost/reopen, ordering, stale versions, edits, activities, tasks + reminders, task privacy, reassign, bulk assign, merge, stage edits, settings, CSV, notifications).
+- Known limits: under heavy contention the round-robin cursor can skip a person once (the lead still gets an owner, or goes to the unassigned queue); a socket keeps its personal notification room until it disconnects, even after logout (token checked at connect, same as B2).
 
 ### 2026-10-13 (5): forgot-password email not arriving — diagnostics
 - Email has existed since B1 (Nodemailer + `email.send` job, BN/EN templates `password_reset`, `account_setup`, `password_changed`). The code path checks out; the cause is on the owner's side (SMTP login, an email that is not a user, or the API not running) and couldn't be seen from the sandbox (no Atlas/Gmail access).

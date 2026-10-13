@@ -478,3 +478,19 @@ export async function deleteBlock({ orgId, blockId, ctx }) {
   });
   await revalidateProject(orgId, await getProjectAccess(orgId, b.projectId));
 }
+
+/** Names for CRM lists: Map id → { id, name, nameBn, slug, kind } (deleted projects included). */
+export async function projectSummaries(orgId, ids) {
+  const unique = [...new Set(ids.filter(Boolean).map(String))];
+  if (!unique.length) return new Map();
+  const rows = await Project.find({ orgId, _id: { $in: unique } })
+    .select('name nameBn slug kind')
+    .setOptions({ withDeleted: true })
+    .lean();
+  return new Map(
+    rows.map((p) => [
+      String(p._id),
+      { id: String(p._id), name: p.name, nameBn: p.nameBn ?? null, slug: p.slug, kind: p.kind },
+    ]),
+  );
+}

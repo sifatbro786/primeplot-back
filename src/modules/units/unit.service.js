@@ -1006,3 +1006,19 @@ export async function getPublicUnit(orgId, id) {
   if (!project?.published) throw new NotFoundError('Unit not found');
   return { unit: u, project };
 }
+
+/** CRM: Map id → { id, code, projectId, kind } for the given unit ids (deleted included). */
+export async function unitRefs(orgId, ids) {
+  const unique = [...new Set(ids.filter(Boolean).map(String))];
+  if (!unique.length) return new Map();
+  const rows = await Unit.find({ orgId, _id: { $in: unique } })
+    .select('code projectId kind')
+    .setOptions({ withDeleted: true })
+    .lean();
+  return new Map(
+    rows.map((u) => [
+      String(u._id),
+      { id: String(u._id), code: u.code, projectId: String(u.projectId), kind: u.kind },
+    ]),
+  );
+}

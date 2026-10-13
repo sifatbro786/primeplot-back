@@ -199,3 +199,30 @@ export async function updateOwnProfile({ orgId, userId, patch, ctx }) {
     await audit(ctx, 'user.profile_update', { entity: { type: 'User', id: user._id }, diff });
   return user.toObject();
 }
+
+// ── Lookups other modules use (B3 CRM) ─────────────────────────────────────────
+
+/**
+ * Active staff who hold `permission` (e.g. leads:read_own → can own leads), lean
+ * `{ id, name, role, locale }`, sorted by id (stable round-robin order).
+ * `roles` narrows further (round-robin uses sales executives only).
+ */
+export async function listActiveStaffWith(orgId, permission, { roles, ids } = {}) {
+  const filter = { orgId, status: 'active' };
+  if (roles) filter.role = { $in: roles };
+  if (ids) filter._id = { $in: ids };
+  const users = await User.find(filter).select('name role locale').sort({ _id: 1 }).lean();
+  return users
+    .filter((u) => permissionsFor(u.role).has(permission))
+    .map((u) => ({ id: String(u._id), name: u.name, role: u.role, locale: u.locale }));
+}
+
+/** Names for display (timeline, lists) — includes disabled users. Map id → name. */
+export async function userNames(orgId, ids) {
+  const unique = [...new Set(ids.filter(Boolean).map(String))];
+  if (!unique.length) return new Map();
+  const users = await User.find({ orgId, _id: { $in: unique } })
+    .select('name')
+    .lean();
+  return new Map(users.map((u) => [String(u._id), u.name]));
+}

@@ -9,6 +9,9 @@ import projectRoutes from '#modules/projects/project.routes.js';
 import unitRoutes from '#modules/units/unit.routes.js';
 import floorPlanRoutes from '#modules/floorplans/floorplan.routes.js';
 import publicRoutes from '#modules/public/public.routes.js';
+import leadRoutes from '#modules/leads/lead.routes.js';
+import publicLeadRoutes from '#modules/leads/publicLead.routes.js';
+import notificationRoutes from '#modules/notifications/notification.routes.js';
 import internalRoutes from '#jobs/jobs.routes.js';
 import { limits } from '#shared/middleware/rateLimit.js';
 import { originGuard } from '#shared/middleware/originGuard.js';
@@ -35,6 +38,9 @@ api.use('/media', mediaRoutes);
 api.use('/projects', projectRoutes);
 api.use('/units', unitRoutes);
 api.use('/floorplans', floorPlanRoutes);
+api.use('/leads', leadRoutes);
+api.use('/notifications', notificationRoutes);
+api.use('/public/leads', publicLeadRoutes); // website enquiry form — before the cached catalogue
 api.use('/public', publicRoutes); // website catalogue — no auth
 
 export default api;

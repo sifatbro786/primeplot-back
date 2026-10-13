@@ -355,10 +355,8 @@ Published projects only. Blocked/cancelled units are never listed; hold details 
 | `GET /public/units/:id` | `PublicUnit` + `layout: Media` + `project: { id, slug, name, nameBn, kind }` |
 | `GET /public/floorplans/:id?floor=` | Resolved plan; a hidden unit's hotspot has `unitId: null` and `target.unit = { status: "unavailable" }` |
 
-### Website leads — planned for B3 (frontend form already built, submit switched off)
-`POST /public/leads` (no auth, rate-limited) — the website form sends:
-`{ name, phone, email?, projectSlug?, message?, source: "website", page, hp, elapsedMs }`
-(`hp` = honeypot, must be empty; `elapsedMs` < 2500 → treat as bot). Expected: `201` (or a silent `201` for bots), `422 VALIDATION_ERROR`, `400 INVALID_PHONE`, `429`. Final shape is fixed in B3.
+### Website leads — `POST /public/leads` (B3.1, live)
+See **B3 › Website form** below.
 
 ### Real-time (Socket.IO)
 - Connect **directly to the API host** (not through the Next.js rewrite): `io(NEXT_PUBLIC_SOCKET_URL, { auth: { token } })`, dev `http://localhost:5030`.
@@ -368,6 +366,7 @@ Published projects only. Blocked/cancelled units are never listed; hold details 
   - public: `{ unitId, projectId, status: "available|held|sold|unavailable" }`
   - staff: `{ unitId, projectId, code, status, hold: { byName, until } | null, listPrice, version, at }`
 - Connection errors: `connect_error` with `err.data.code` (`INVALID_SOCKET_TOKEN`, `SESSION_INVALIDATED`, `ORG_NOT_CONFIGURED`).
+- **Personal channel (B3):** a socket connected with a token joins its user's room automatically and receives `notification` events (same object as `GET /notifications` items). No subscribe call needed.
 
 ### Revalidation webhook (API → frontend)
 When published content changes, the API calls the frontend (queued job, retried, bursts coalesced ~3 s):
@@ -380,3 +379,114 @@ X-PrimePlot-Signature: sha256=<hex HMAC-SHA256(REVALIDATE_SECRET, "<timestamp>.<
 { "tags": ["project:lake-view-residency", "projects"] }
 ```
 The frontend route (F2) must: read the raw body, recompute the HMAC with the same `REVALIDATE_SECRET`, compare in constant time, reject timestamps older than 5 minutes, then `revalidateTag()` each tag. Tags: `projects` (listings), `project:<slug>` (detail, units, floor plans) and `org` (header/footer branding, sent after `PATCH /org`). Disabled when `REVALIDATE_SECRET` is empty.
+
+---
+
+## B3 — Leads & CRM
+
+### Conventions for B3
+- **Visibility:** `leads:read_own` (sales executive) sees only leads assigned to them — any other lead is **404**. `leads:read_all` (manager, admin) sees all. Filtering by another person's leads without `read_all` → `403`.
+- **Phones** are stored in E.164. Input accepts BD mobiles in any common form (`01712-345678`, `+880…`, Bangla digits) and international numbers with a country code (`+971 50 123 4567`, `00971…`) for NRB buyers. Invalid → `400 INVALID_PHONE`.
+- **One open lead per phone and type** (`buyer` / `landowner`). The website form and integrations add a repeat **enquiry** to the open lead; manual entry gets `409 DUPLICATE_LEAD` (`details[0].leadId` + `assigneeName` when you can see that lead). A closed (won/lost) lead doesn't block: a new one is created with `previousLeadId`.
+- **Versions:** edits, moves, assignment, settings and tasks send the `version` they loaded; a mismatch → `409 STALE_VERSION`.
+- **Money** (budgets) in poisha. Times are ISO UTC; "today" filters use Asia/Dhaka days.
+- **Assignment** (owner decision 2026-10-13): round-robin among active **sales executives**; a project can have its own team (rotation inside the team). `manual` mode leaves new leads unassigned and notifies users with `leads:assign`. Executives creating a lead own it.
+- **SLA** (owner decision): first response due **30 office minutes** after arrival (09:00–20:00 Dhaka, Friday off; editable). First response = the first call/SMS/email/WhatsApp/meeting/site-visit logged, or moving the lead out of the first stage. Escalation to managers comes in B3.2.
+
+### Shapes
+```jsonc
+// Lead
+{
+  "id": "…", "version": 3, "type": "buyer",            // buyer | landowner
+  "name": "Rahim Uddin", "phone": "+8801712345678", "altPhone": null, "email": null,
+  "source": "website",   // website | facebook | instagram | manual | walk_in | phone | referral | other
+  "sourceDetail": { "page": "/bn/projects/lake-view", "campaign": null, "medium": "google / cpc", "formName": null, "referrer": null },
+  "message": "3 bed, south facing",
+  "interest": { "projectId": "…", "project": { "id", "name", "nameBn", "slug", "kind" } | null,
+                "unitId": null, "unitCode": null, "bedrooms": 3, "budgetMin": 800000000, "budgetMax": 1200000000 },
+  "land": null | { "location", "area": LandArea, "roadWidthFt", "ownership": "sole|joint|inherited|company|other",
+                   "mutation": "done|pending|not_started|unknown", "expectedShare": "50:50" },
+  "stageId": "…", "stage": Stage,                      // stage included on detail/board/list
+  "status": "open",                                    // open | won | lost (follows the stage kind)
+  "rank": "a0V",                                       // Kanban order inside the stage
+  "lostReason": null, "lostNote": null, "closedAt": null,
+  "assigneeId": "…", "assigneeName": "Sumi", "assignedAt": "…",
+  "slaDueAt": "…", "firstResponseAt": null, "slaBreached": false,
+  "lastActivityAt": null, "nextFollowUpAt": "…",       // earliest open task
+  "enquiryCount": 2, "lastEnquiryAt": "…", "tags": ["vip"],
+  "previousLeadId": null, "createdAt": "…", "updatedAt": "…"
+}
+// Stage
+{ "id", "pipeline": "buyer", "key": "visit_scheduled", "name": "Site visit scheduled", "nameBn": "সাইট ভিজিট নির্ধারিত",
+  "kind": "open|won|lost", "color": "neutral|sage|olive|sand|clay|sky|success|danger", "order": 2, "count"?: 14 }
+// Activity (timeline, newest first)
+{ "id", "leadId", "type", "body", "outcome", "durationSec", "at", "actorId", "actorName", "meta", "createdAt" }
+//   staff types: note | call | sms | email | whatsapp | meeting | site_visit
+//   system types: created | enquiry | stage_change | assigned | merged | task_created | task_done | updated
+//   call outcome: connected | no_answer | busy | switched_off | wrong_number | call_back
+//   meta examples: stage_change { from, to, status, lostReason } · assigned { from, to, fromName, toName, auto? }
+//                  enquiry { source, page, projectId } · updated { fields: [...] } · merged { sourceId, sourceName, sourcePhone }
+// Task
+{ "id", "version", "leadId", "leadName", "leadPhone", "assigneeId", "assigneeName", "title",
+  "type": "call|visit|meeting|follow_up|other", "dueAt", "remindAt", "status": "open|done|cancelled", "doneAt", "createdAt" }
+```
+Default stages — buyer: New → Contacted → Site visit scheduled → Visited → Negotiation → **Booked** (won) / **Lost**. Landowner: New → Contacted → Land inspection → Document check → Negotiation → **Agreement signed** (won) / **Dropped** (lost). Created on first use; editable.
+
+### Leads 🔒
+| Endpoint | Permission | Notes |
+|---|---|---|
+| `GET /leads` | read_own / read_all | Filters: `type, stageId, status, source, assignee=<id>\|me\|unassigned, projectId, tag, q` (name, email, ≥ 4 phone digits), `from, to` (createdAt), `followUp=overdue\|today\|upcoming\|none` (open leads), `slaBreached=true\|false`; cursor pagination (`cursor, limit ≤ 100`), newest first |
+| `POST /leads` | `leads:write` | Body: `{ type?, name, phone, altPhone?, email?, source? (not website, default manual), sourceDetail?, message?, interest?, land?, tags?, assigneeId? }`. `assigneeId` omitted → executives own it, managers → round-robin; `null` → unassigned; another user needs `leads:assign`. → `201 Lead` · `409 DUPLICATE_LEAD` · `400 INVALID_PHONE / UNKNOWN_PROJECT / UNKNOWN_UNIT / UNIT_PROJECT_MISMATCH / INVALID_ASSIGNEE` |
+| `GET /leads/board?type&assignee&projectId&source&tag&q&perStage≤100&closedDays≤365` | read | `{ type, stages: [Stage + { count, leads: Lead[] (by rank), hasMore }] }`. Won/lost columns: closed in the last `closedDays` (30) |
+| `GET /leads/board/stages/:stageId?…&afterRank&afterId&limit` | read | Next cards of one column (same filters) → `Lead[]` + `meta { hasMore }` |
+| `GET /leads/:id` | read | `Lead` (404 when not visible) |
+| `PATCH /leads/:id` | `leads:write` | `{ version, name?, phone?, altPhone?, email?, source?, sourceDetail?, interest?, land? (landowner only), tags? }` → `Lead`; phone clash with another open lead → `409 DUPLICATE_LEAD` |
+| `POST /leads/:id/move` | `leads:write` | `{ version, stageId, afterId?, beforeId?, lostReason? (required for a lost stage), lostNote? }` — `afterId` = card above, `beforeId` = card below (send both when known); none → top of the column. → `Lead`. Errors: `400 LOST_REASON_REQUIRED / UNKNOWN_STAGE`, `409 STALE_VERSION / STALE_POSITION` (reload the board) / `DUPLICATE_LEAD` (reopening while the phone has another open lead). Closing a lead cancels its open tasks |
+| `POST /leads/:id/assign` | `leads:assign` | `{ version, assigneeId \| null }` → `Lead`. Open tasks move to the new owner, who is notified. Audited |
+| `POST /leads/assign` | `leads:assign` | `{ ids ≤ 200, assigneeId \| null }` → `{ updated }` |
+| `POST /leads/:id/merge` | `leads:assign` + `write` | `{ sourceId }` → target `Lead`: timeline + tasks move over, enquiry counts add up, empty fields are filled (`altPhone` ← source phone), source is hidden (404). Same type only (`400 TYPE_MISMATCH`) |
+| `DELETE /leads/:id` | `leads:assign` + `write` | Soft delete, open tasks cancelled → `204` |
+| `GET /leads/export?<list filters>` | `leads:read_all` | CSV (UTF-8 BOM for Excel/Bangla), ≤ 10,000 rows, formula-injection safe. Audited (`lead.export`) |
+| `GET /leads/assignees` | read | `[{ id, name, role, locale }]` — active staff who can own leads (for pickers) |
+
+Audit actions added: `lead.create` (manual), `lead.assign`, `lead.bulk_assign`, `lead.merge`, `lead.delete`, `lead.export`, `pipeline.update`, `lead_settings.update`.
+
+### Activities & tasks 🔒
+| Endpoint | Permission | Notes |
+|---|---|---|
+| `GET /leads/:id/activities?cursor&limit` | read | Timeline, newest first |
+| `POST /leads/:id/activities` | `leads:write` | `{ type: note\|call\|sms\|email\|whatsapp\|meeting\|site_visit, body? (required for note), outcome? (calls only), durationSec?, at? (≤ 30 days back) }` → `201 Activity`. Any type except `note` sets `firstResponseAt` if empty |
+| `GET /leads/:id/tasks?status&cursor&limit` | read | All tasks of a visible lead, by due time |
+| `POST /leads/:id/tasks` | `leads:write` | `{ title, type?, dueAt, remindMinutesBefore? (0, 15 default, 30, 60, 120, 1440 or null), assigneeId? }` → `201 Task`. Default owner = the lead's owner; someone else needs `leads:assign`. Closed lead → `409 LEAD_CLOSED` |
+| `PATCH /leads/tasks/:taskId` | `leads:write` | `{ version, title?, type?, dueAt?, remindMinutesBefore?, status? (open\|done\|cancelled), assigneeId? }` → `Task`. Owner or `read_all` only (else 404). Rescheduling re-arms the reminder |
+| `GET /leads/tasks?scope=mine\|all&due=overdue\|today\|upcoming\|all&status=open&leadId&assigneeId&cursor&limit` | read (`all` needs read_all) | By due time; cursor = last (dueAt, id) |
+| `GET /leads/tasks/counts` | read | `{ overdue, today }` for my open tasks |
+
+Reminders: job `leads.taskReminders` (every minute) sends one `task.due` notification per task when `remindAt` passes.
+
+### Pipeline & settings 🔒 `pipeline:manage` (manager, admin)
+| Endpoint | Notes |
+|---|---|
+| `GET /leads/stages?type=buyer\|landowner` | `Stage[]` in order (`count` only for `leads:read_all`; readable by anyone with lead access) |
+| `PUT /leads/stages` | `{ pipeline, stages: [{ id? (existing), name, nameBn?, kind, color? }] }` (3–15; array order = column order) → `Stage[]` with counts. Needs ≥ 1 open, exactly 1 won, ≥ 1 lost (`400 INVALID_PIPELINE`). Leaving out a stage removes it — `409 STAGE_IN_USE` if it holds leads; `409 STAGE_KIND_LOCKED` when a stage with leads changes kind. New leads land in the first open stage |
+| `GET /leads/settings` | `{ version, assignment: { mode: round_robin\|manual, projectPools: [{ projectId, userIds }] }, sla: { enabled, firstResponseMinutes, officeStart: "09:00", officeEnd: "20:00", weekend: [5] }, autoReply: { enabled, textBn, textEn } }` |
+| `PATCH /leads/settings` | Any part + `version`. `400 INVALID_OFFICE_HOURS / INVALID_ASSIGNEE / UNKNOWN_PROJECT`. Auto-reply placeholders: `{name}`, `{company}` (sending starts in B3.2) |
+
+### Website form — `POST /public/leads` (no auth)
+Body (strict): `{ type?: buyer|landowner, name, phone, email? ("" allowed), projectSlug?, unitId?, message?, land? (landowner), source: "website", page?, utm?: { source, medium, campaign }, hp, elapsedMs }`
+- `201 { received: true }` for people **and** for bots (`hp` filled, or `elapsedMs` < 2500) — bots are dropped silently.
+- `400 INVALID_PHONE`, `422 VALIDATION_ERROR`, `429` (5 per 10 minutes per IP). `Cache-Control: no-store`.
+- An unknown/unpublished `projectSlug` is ignored (the lead is still saved). A repeat enquiry joins the open lead for that phone.
+
+### Notifications 🔒 (own only)
+| Endpoint | Notes |
+|---|---|
+| `GET /notifications?unread=true&cursor&limit` | `[{ id, type, data, readAt, createdAt }]` newest first. Kept 90 days |
+| `GET /notifications/unread-count` | `{ count }` |
+| `POST /notifications/read` | `{ all: true }` or `{ ids: [...] }` → `{ updated }` |
+
+Types and `data` (the dashboard renders the text in the viewer's language):
+- `lead.assigned` `{ leadId, name, type, source, by? }` — a lead was given to you
+- `lead.enquiry` `{ leadId, name, type, source }` — your lead enquired again (unassigned → managers)
+- `lead.unassigned` `{ leadId, name, type, source }` — new lead without an owner (to `leads:assign` users)
+- `task.due` `{ taskId, leadId, title, dueAt, leadName, leadPhone }`

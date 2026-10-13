@@ -4,5 +4,6 @@ import './handlers/email.send.js';
 import './handlers/media.purgeDeleted.js';
 import './handlers/units.expireHolds.js';
 import './handlers/frontend.revalidate.js';
+import './handlers/leads.taskReminders.js';
 
 export { enqueue, nudge, startScheduler, stopScheduler, tick } from './scheduler.js';

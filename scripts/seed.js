@@ -23,6 +23,12 @@ import '#modules/projects/project.model.js';
 import '#modules/projects/block.model.js';
 import '#modules/units/unit.model.js';
 import '#modules/floorplans/floorplan.model.js';
+import '#modules/leads/lead.model.js';
+import '#modules/leads/leadStage.model.js';
+import '#modules/leads/leadActivity.model.js';
+import '#modules/leads/leadTask.model.js';
+import '#modules/leads/leadSettings.model.js';
+import '#modules/notifications/notification.model.js';
 import { assertPasswordAllowed, zPassword } from '#modules/auth/passwordPolicy.js';
 
 const { values: a } = parseArgs({
