@@ -6,24 +6,32 @@ import { validate, zid } from '#shared/middleware/validate.js';
 import { ok } from '#shared/utils/response.js';
 import { normalizeBdPhone } from '#shared/utils/phone.js';
 import { integrationStatus } from '#integrations/config.js';
+import { queueRevalidate } from '#integrations/revalidate/index.js';
 import { authenticate, authorize } from '#modules/auth/auth.middleware.js';
 import { audit, auditContext } from '#modules/audit/audit.service.js';
+import { publicMediaMap } from '#modules/media/media.service.js';
 import { toPublicOrg, updateOrg } from './organization.service.js';
 
 const router = Router();
 
-/** Public: branding for the login page / public site header (no secrets). */
-router.get('/public', (req, res) => {
+/** Public: branding for the login page / public site header and footer (no secrets). */
+router.get('/public', async (req, res) => {
   const o = toPublicOrg(req.org);
+  const logo = o.logoMediaId
+    ? ((await publicMediaMap(req.orgId, [o.logoMediaId])).get(o.logoMediaId) ?? null)
+    : null;
   ok(res, {
     name: o.name,
     nameBn: o.nameBn,
     logoMediaId: o.logoMediaId,
+    logo,
     phone: o.phone,
     email: o.email,
     address: o.address,
     addressBn: o.addressBn,
     website: o.website,
+    tradeLicenseNo: o.tradeLicenseNo,
+    rehabMemberNo: o.rehabMemberNo,
     defaultLocale: o.settings?.defaultLocale ?? 'bn',
     features: { onlinePayment: integrationStatus(req.orgId).onlinePayment },
   });
@@ -76,11 +84,14 @@ router.patch(
         throw new BadRequestError('Invalid Bangladesh mobile number', { code: 'INVALID_PHONE' });
     }
     const { org, diff } = await updateOrg(req.orgId, patch);
-    if (diff)
+    if (diff) {
       await audit(auditContext(req), 'org.update', {
         entity: { type: 'Organization', id: org._id },
         diff,
       });
+      // Name, logo and contact details show in the website header/footer.
+      await queueRevalidate(req.orgId, ['org']);
+    }
     ok(res, toPublicOrg(org));
   },
 );

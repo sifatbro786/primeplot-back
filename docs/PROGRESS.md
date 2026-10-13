@@ -9,9 +9,9 @@
 
 | | |
 |---|---|
-| **Current phase** | F3: Dashboard Inventory — **code complete** (step 1 + step 2). Next: F2 public site or B3 Leads & CRM (owner picks) |
-| **Last completed** | F3.2 plans (hotspot editor + live plan viewer), price list (bulk per-unit prices), gallery + brochure; backend `POST /projects/:id/units/prices` (2026-10-12) |
-| **Next step** | Owner: `npm test` (backend — new price-matrix integration tests), restart both servers, try Plans / Price list / Gallery against the real API → then choose F2 or B3 |
+| **Current phase** | F2: Public site — **step 1 code complete** (projects listing, project page, plan viewer, unit page + calculator, SEO, revalidation). Next: F2 step 2 (home page with hero video, about/contact, lead form UI with submit disabled until B3) |
+| **Last completed** | F2.1 public catalogue pages + `/api/revalidate` + sitemap/robots; backend `/org/public` branding fields (2026-10-13) |
+| **Next step** | Owner: backend `npm test`; frontend `npm install` (new: embla-carousel-react, maplibre-gl), add the new env keys, `npm run dev`, publish a project and check /bn/projects → then F2 step 2 |
 | **Blocker** | None. D1/D3/D4 still open (not blocking F2/F3) |
 
 ---
@@ -27,6 +27,7 @@
 
 ## ✅ Resolved decisions
 - 2026-10-11: single-tenant + `orgId`; apartment + plot; no Redis
+- 2026-10-13: **F2 scope** — owner shared 3 reference sites for pattern only (never copied); hero video = Pexels stock for now; lead form = (খ) UI built, submit disabled until B3; production domain = `.env` placeholder (`NEXT_PUBLIC_SITE_URL`); calculator defaults 30 % / 36 months / no bank loan; About text drafted by Claude, no invented stats or testimonials
 - 2026-10-12: **Area units** — plots/land take **katha or decimal (শতাংশ)** as entered (deed figure kept as the source of truth) and the backend stores both (+ sq ft, sq m), with exact auto-conversion (1 katha = 720 sft, 1 decimal = 435.6 sft). Apartments: **sq ft primary**, sq m derived and stored so views can show both.
 - 2026-10-12: **D5 accepted** — manual payments (cash/cheque/PDC/bank transfer/pay order) are first-class; the client can upload a bank-transfer slip in the portal and staff verify it (verified slip → normal receipt); SSLCommerz optional; Stripe not in v1 (gateway adapter keeps it addable). Slip storage (private `payment_slip` media) is built in B1; the slip workflow lands in B4/B5.
 - 2026-10-11 (rev): dev-only for now, backend on the Hostinger VPS at the end; **Cloudinary dropped → local `uploads/`**; SSLCommerz + SMS fully built and env-driven; Unsplash/Pexels placeholders; Node ≥ 24; `PORT=5030`; Atlas URI and SMTP set in `.env`
@@ -85,12 +86,12 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [~] Tests: unit 62 ✔ in sandbox; integration (`inventory.test.js` — hold race, transitions, pricing, public, floor plans; `sockets.test.js`) written — owner runs `npm test`
 
 ### F2: Public site (Frontend)
-- [ ] Home, projects listing + filters
-  - Owner note (2026-10-12): the home page hero will use a **background video** — plan for a poster image, muted autoplay + `playsinline`, `prefers-reduced-motion` / Save-Data fallback to the poster, and video upload support in media (or an external CDN/YouTube source) — confirm source before F2
-- [ ] Project detail (gallery/Embla, map, amenities)
-- [ ] Floor plan & master plan viewer (live status chip)
-- [ ] Unit detail, installment/EMI calculator
-- [ ] Lead forms (honeypot, retry for cold start), SEO, JSON-LD, sitemap, `/api/revalidate`
+- [~] Home, projects listing + filters — listing done (F2.1); home is step 2
+  - Owner note (2026-10-12): the home page hero will use a **background video** — poster image, muted autoplay + `playsinline`, `prefers-reduced-motion` / Save-Data fallback to the poster. Owner decision 2026-10-13: a free Pexels stock video for now; the owner will later drop the real file into `public/`
+- [x] Project detail (gallery/Embla + full-screen viewer, MapLibre map, amenities, unit-type table, live availability grid, plans, brochure, contact band)
+- [x] Floor plan & master plan viewer (live status, floor switcher, zoom, accessible unit list)
+- [x] Unit detail, installment calculator (defaults 30 % down / 36 months; bank-loan part built but off — `CALCULATOR.showLoan`)
+- [~] SEO (metadata, canonical + hreflang, JSON-LD, sitemap, robots, indexing switch) and signed `/api/revalidate` done; lead forms are step 2 (owner decision 2026-10-13: form UI now, submit disabled until B3)
 
 ### F3: Dashboard Inventory (Frontend)
 - [x] Projects list/create/details (cover, location, land katha/decimal, approval, website flags, amenities), buildings/blocks CRUD
@@ -162,6 +163,23 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 ---
 
 ## 📝 Session Log (newest first)
+
+### 2026-10-13: F2 step 1 — public catalogue
+- **Fixed first:** the F3.2 price-matrix test read units without `orgId` (tenant guard) → `inventory.test.js` lines 313/336 now filter by `orgId`.
+- **Backend:** `GET /org/public` now also returns `logo` (public Media), `tradeLicenseNo`, `rehabMemberNo`; `PATCH /org` queues the website revalidation tag `org`. Files: `organizations/organization.routes.js`, `tests/integration/rbac-users.test.js`, `docs/API.md`.
+- **Frontend — routes** (`app/[locale]/(site)/`, own header/footer layout, `error.js`, `not-found.js`):
+  - `/projects` — filters in the URL (search, type, status, area, starting-price bands, sort), grid with editorial rows for featured projects, map view; a real GET form (works without JS).
+  - `/projects/[slug]` — diagonal hero, facts band, overview + numbered highlights, Embla gallery + full-screen viewer (keyboard/swipe), unit-type table, **live** building elevation / plot tiles per road (public Socket.IO room), plan cards, amenities, MapLibre map (lazy, cooperative gestures) + Google Maps link, contact band.
+  - `/projects/[slug]/plans/[planId]?floor=` — public plan viewer (same SVG engine as the dashboard), floor switcher without a server round-trip, live colours, zoom, list of homes on the floor.
+  - `/projects/[slug]/units/[unitId]` — facts, layout or sample image, price, payment calculator, "see it on the plan", similar available homes; a wrong project slug redirects (308) to the canonical URL.
+- **Data:** `lib/public/api.js` — `use cache` reads tagged `projects` / `project:<slug>` / `org` (5 min background refresh as a safety net); a 404 → `notFound()`, errors are never cached. Branding uses `getSiteOrgOrNull()` (postpones to request time if the API is down during a build).
+- **`/api/revalidate`:** raw-body HMAC-SHA256 check in constant time, ±5 min timestamp, tag allow-list, `revalidateTag(tag, { expire: 0 })`.
+- **SEO:** per-page title/description, canonical + hreflang (bn, en, x-default), OG image, JSON-LD (ApartmentComplex/Place, Apartment + Offer, BreadcrumbList), `app/sitemap.js` (both languages, plans, available/reserved units), `app/robots.js`. **Indexing is off unless `NEXT_PUBLIC_ALLOW_INDEXING=true`** (robots disallow + noindex).
+- **Shared changes:** `lib/socket.js` has a separate token-less public pool (visitors never call `/auth/socket-token`); `PlanCanvas` keeps native pinch-zoom in view mode; `SmartImage` no longer collapses when given `absolute inset-0`; `.caps` utility + Bangla override (no letter-spacing on Bangla labels, incl. `.eyebrow`).
+- **New deps:** `embla-carousel-react` 8.6, `maplibre-gl` 6.11.2 (worker copied to `public/vendor/maplibre/` by `scripts/vendor-maplibre.mjs` on `predev`/`prebuild`; git-ignored). **New env:** `NEXT_PUBLIC_ALLOW_INDEXING`, `NEXT_PUBLIC_MAP_STYLE_URL` (default OpenFreeMap, no key).
+- **Verified in sandbox** against a mock public API + Socket.IO: `next build` (fonts stubbed) clean, ESLint + esbuild clean, 29 Playwright checks (filters/search/budget/map view, live recolour on project + plan pages, gallery keyboard, building tabs, floor switch + URL, hotspot → unit, calculator, slug redirect, 404, Bangla plot page, no prices when `publicPricing` is off, no socket-token calls, revalidate 200/401/401/400) + webhook → fresh HTML, no horizontal scroll at 390 px, no dev-overlay issues.
+- **Not verified:** real fonts, map tiles and Unsplash photos (sandbox has no access), real API end to end.
+- Known limits: the "Available now" fact on the project page is server data (the grid below it is live); the listing has no size filter (the API's project cards carry no unit sizes); plan hotspot labels are shown as staff typed them.
 
 ### 2026-10-12 (7): F3 step 2 — plans, price list, gallery
 - **Backend (new endpoint):** `POST /projects/:id/units/prices` (`pricing:write`) — set/clear `rateOverride` and `priceAdjustment` on ≤ 500 units in one transaction; every item carries the unit `version` (`409 STALE_VERSION` lists the unit codes), sold units → `409 UNIT_LOCKED`, `dryRun: true` returns the would-be prices without writing. Writes bump `version`, send `unit:status` deltas (new `listPrice`) and revalidate the website. Audit `unit.price_bulk_update`. Files: `units/unit.validation.js` (`zUnitPrices`), `units/unit.service.js` (`setUnitPrices`), `projects/project.routes.js`, `docs/API.md`. Tests: 2 integration cases in `inventory.test.js`, 1 schema case in `b2-contracts.test.js`.

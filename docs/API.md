@@ -141,7 +141,7 @@ Revokes one of **your own** sessions (`404` otherwise). Revoking the current one
 ---
 
 ### `GET /org/public` (no auth)
-`200 { name, nameBn, logoMediaId, phone, email, address, addressBn, website, defaultLocale, features: { onlinePayment } }` — for the login page and public site header.
+`200 { name, nameBn, logoMediaId, logo: Media|null, phone, email, address, addressBn, website, tradeLicenseNo, rehabMemberNo, defaultLocale, features: { onlinePayment } }` — for the login page and the public site header/footer (`logo` = the public logo media with URLs). `PATCH /org` revalidates the website tag `org`.
 
 ### `GET /org` 🔒 `org:read`
 `200 { …org, features }`
@@ -374,4 +374,4 @@ X-PrimePlot-Signature: sha256=<hex HMAC-SHA256(REVALIDATE_SECRET, "<timestamp>.<
 
 { "tags": ["project:lake-view-residency", "projects"] }
 ```
-The frontend route (F2) must: read the raw body, recompute the HMAC with the same `REVALIDATE_SECRET`, compare in constant time, reject timestamps older than 5 minutes, then `revalidateTag()` each tag. Tags: `projects` (listings) and `project:<slug>` (detail, units, floor plans). Disabled when `REVALIDATE_SECRET` is empty.
+The frontend route (F2) must: read the raw body, recompute the HMAC with the same `REVALIDATE_SECRET`, compare in constant time, reject timestamps older than 5 minutes, then `revalidateTag()` each tag. Tags: `projects` (listings), `project:<slug>` (detail, units, floor plans) and `org` (header/footer branding, sent after `PATCH /org`). Disabled when `REVALIDATE_SECRET` is empty.

@@ -121,6 +121,7 @@ describe('organization', () => {
     expect(pub.status).toBe(200);
     expect(pub.body.data.name).toBe('Acme Properties');
     expect(pub.body.data.features).toEqual({ onlinePayment: false });
+    expect(pub.body.data).toMatchObject({ logo: null, tradeLicenseNo: null, rehabMemberNo: null });
 
     const mgr = await loginAgent(request, app, manager);
     expect((await mgr.patch('/api/v1/org').send({ nameBn: 'অ্যাকমি' })).status).toBe(403);
