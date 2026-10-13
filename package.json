@@ -21,6 +21,7 @@
     "start": "node server.js",
     "seed": "node scripts/seed.js",
     "seed:demo": "node scripts/seed-demo.js",
+    "email:check": "node scripts/email-check.js",
     "test": "vitest run",
     "test:unit": "vitest run tests/unit",
     "test:watch": "vitest",

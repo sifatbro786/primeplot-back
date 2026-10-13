@@ -9,9 +9,9 @@
 
 | | |
 |---|---|
-| **Current phase** | F2: Public site — **code complete** (step 1 catalogue + step 2 home/about/contact). Lead submit waits for B3. Next: F2b public-site extras, then B3 Leads & CRM |
-| **Last completed** | F2.2 home (hero video, search, real stats, featured, areas, how-it-works, enquiry form UI), about, contact, GSAP reveal; backend `npm run seed:demo` (2026-10-13) |
-| **Next step** | Owner: backend `npm run seed:demo`, frontend `npm install` (new: gsap) and delete the old `app/[locale]/page.js` if it is still there, check the site → then B3 |
+| **Current phase** | F2 + F2b: Public site — **code complete**. Lead submit waits for B3. Next: B3 Leads & CRM |
+| **Last completed** | F2b: Privacy + Terms, WhatsApp button, consent-gated GA4/Meta Pixel (IDs from Company settings), OG share cards, unit comparison (2026-10-13) |
+| **Next step** | Owner: backend `npm test` (new org analytics case), restart both apps, enter GA4/Pixel IDs in Company settings › Website analytics, check /privacy, /terms, cookie banner, compare → then B3 |
 | **Blocker** | None. D1/D3/D4 still open (not blocking F2/F3) |
 
 ---
@@ -26,6 +26,7 @@
 | D4 | v1/v2 split | See ARCHITECTURE §4 (proposed) | Before B2 |
 
 ## ✅ Resolved decisions
+- 2026-10-13: **Tracking IDs from the dashboard** (owner) — GA4 Measurement ID + Meta Pixel ID live on the Organization (`analytics`), edited in Company settings, not `.env`. Privacy/Terms use the settings' **legal name** (falls back to the company name); both pages linked from the footer
 - 2026-10-11: single-tenant + `orgId`; apartment + plot; no Redis
 - 2026-10-13: **Public-site extras accepted** (all 8): privacy/terms, WhatsApp button, analytics + consent, OG images, unit comparison → F2b; landowner/JV leads → B3 (+ page in F4); editable site content + construction updates → B2b/F3b. Owner feedback: public pages read too white — colour pass before F2b
 - 2026-10-13: **F2 scope** — owner shared 3 reference sites for pattern only (never copied); hero video = Pexels stock for now; lead form = (খ) UI built, submit disabled until B3; production domain = `.env` placeholder (`NEXT_PUBLIC_SITE_URL`); calculator defaults 30 % / 36 months / no bank loan; About text drafted by Claude, no invented stats or testimonials
@@ -95,12 +96,12 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] SEO (metadata, canonical + hreflang, JSON-LD, sitemap, robots, indexing switch), signed `/api/revalidate`, About + Contact pages
 - [~] Lead forms: UI + validation + honeypot + min fill time + retry built; submit off (`NEXT_PUBLIC_LEADS_ENABLED`) until B3 ships `POST /public/leads`
 
-### F2b: Public site extras (Frontend) — owner-approved 2026-10-13, next after the colour pass
-- [ ] Privacy Policy + Terms pages (BN/EN, drafted; linked from footer and every lead form — also needed for Meta Lead Ads)
-- [ ] Floating WhatsApp button (org phone, hidden when no phone, respects the mobile tab area)
-- [ ] Analytics: GA4 + Meta Pixel from env IDs, loaded only after cookie consent (consent banner, remembered choice); lead-submit and "call"/"WhatsApp" click events
-- [ ] Per-project / per-unit OG share images (`opengraph-image.js`, cover + name + from-price, BN/EN)
-- [ ] Unit comparison: pick 2–3 units (any page) → side-by-side table (size, floor, facing, price, payment estimate); kept in the URL
+### F2b: Public site extras (Frontend) — owner-approved 2026-10-13
+- [x] Privacy Policy + Terms pages (BN/EN, drafted; linked from footer and every lead form — also needed for Meta Lead Ads). **Owner: have a lawyer review the text** (`content/legal/*.json`)
+- [x] Floating WhatsApp button (org phone, hidden when no phone; stacks with the comparison tray and cookie banner)
+- [x] Analytics: GA4 + Meta Pixel — IDs from **Company settings** (owner change: not env), loaded only after cookie consent (banner, remembered choice, "Cookie settings" in the footer, re-asked when a new tool is switched on); lead-submit and call/WhatsApp click events
+- [x] Per-project / per-unit OG share images (`opengraph-image.js`: cover + name + price; English text on both locales — the image renderer can't shape Bangla)
+- [x] Unit comparison: "Add to compare" on unit pages → tray on every page → `/compare?u=…` (size, floor/road, facing, corner, parking, price, down payment, monthly); shareable URL, not indexed
 
 ### F3: Dashboard Inventory (Frontend)
 - [x] Projects list/create/details (cover, location, land katha/decimal, approval, website flags, amenities), buildings/blocks CRUD
@@ -179,6 +180,25 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 ---
 
 ## 📝 Session Log (newest first)
+
+### 2026-10-13 (5): forgot-password email not arriving — diagnostics
+- Email has existed since B1 (Nodemailer + `email.send` job, BN/EN templates `password_reset`, `account_setup`, `password_changed`). The code path checks out; the cause is on the owner's side (SMTP login, an email that is not a user, or the API not running) and couldn't be seen from the sandbox (no Atlas/Gmail access).
+- **New:** `npm run email:check [-- --to you@x.com] [-- --user login@x.com]` (`scripts/email-check.js`): shows SMTP config (masked), tests the SMTP login with a plain-language fix hint (Gmail App Password, port/secure mismatch, network), optionally sends a test email, lists the last 10 `email.send` jobs with status/attempts/lastError, and checks whether a login email exists.
+- **Fix:** reset/setup links now include the user's locale (`/bn/reset-password?token=…`), so they open in the right language without a redirect.
+- Open: the email templates still use the early placeholder colours (terracotta/stone), no logo — a brand pass (olive/sage, logo, BN fonts) is proposed, awaiting owner OK.
+
+### 2026-10-13 (4): F2b — public-site extras
+- **Owner decisions:** GA4 / Meta Pixel IDs are managed from the dashboard (not `.env`); Privacy + Terms both in the footer; legal name from Company settings.
+- **Backend:** `Organization.analytics { ga4MeasurementId, metaPixelId }` (format-checked, upper-cased GA4, `""`/`null` clears one key, audit diff + website revalidation through the existing `PATCH /org`); `GET /org/public` now also returns `legalName` and `analytics`. Files: `organizations/organization.{model,service,routes}.js`, `tests/integration/rbac-users.test.js` (+1 case), `docs/API.md`.
+- **Frontend:**
+  - Company settings: new "Website analytics" section (GA4 + Pixel, same format rules as the API); legal-name hint says it is used on Privacy/Terms.
+  - `/privacy`, `/terms` (`components/site/LegalPage.js`): long text in `content/legal/{bn,en}.json` (server-only — kept out of `messages/` because messages ship to the browser on every page); company/legal name, address, phone, email from settings; privacy names the tools actually switched on; numbered TOC; "Last updated" from `LEGAL_UPDATED`. In the footer bottom bar + the enquiry form note + sitemap.
+  - `components/site/SiteDock.js` (in the site layout): cookie banner (equal-weight Accept / Only essential, link to privacy), tag loader (GA4 gtag + Meta Pixel via `next/script`, only after consent, IDs re-validated before going into inline scripts), Pixel PageView on client navigation, call/WhatsApp click events (delegated listener), floating WhatsApp button, comparison tray. Consent cookie `pp_consent = granted.<g|p> | denied` (180 days); withdrawing deletes `_ga*`/`_fbp`/`_fbc` and reloads. No IDs → no banner and no "Cookie settings" link. `lib/analytics/{consent,track}.js`; `LeadForm` sends `generate_lead` on success.
+  - OG cards (`projects/[slug]/opengraph-image.js`, `units/[unitId]/opengraph-image.js`, `lib/public/og.js`): olive card, Playfair/Jakarta from Google Fonts (cached; falls back to the built-in font), cover photo converted from WebP with sharp (cached; card without photo if it fails), "Tk" prices. English on both locales by design.
+  - Compare: `CompareToggle` on the unit page, shortlist in localStorage (`lib/public/compare.js`, max 3, synced across tabs), `/compare?u=` server page (invalid/duplicate ids ignored, "Lowest" price / "Largest" size markers — size only among the same kind, estimates with the calculator defaults, remove column, `noindex`).
+- **Verified in sandbox** (mock API, production build with fonts stubbed): `next build`, ESLint, 41 Playwright checks on the public site (consent flow incl. reject/reopen/accept/withdraw, tags only after consent, events in dataLayer/fbq queue, re-ask on a new tool, footer links, legal pages BN/EN, compare flow + URL sync, empty state, 390 px no overflow), 9 on Company settings (load, client validation, PATCH body, clear, Bangla 390 px), "no IDs" case, OG PNGs (200, project + unit + plot, WebP cover via sharp). Backend: ESLint/Prettier, `npm run check`, 63 unit tests, model validation.
+- **Not verified:** the new integration test against MongoDB (owner runs `npm test`); real Google Fonts in OG cards and real GA4/Pixel hits (sandbox has no access).
+- Known limits: OG images are English-only; the comparison tray is per browser (the `/compare` URL is what you share).
 
 ### 2026-10-13 (3): roadmap additions + public-site colour pass
 - **Roadmap:** owner accepted all 8 public-site extras → new **F2b** (privacy/terms, WhatsApp button, GA4 + Meta Pixel with consent, OG images, unit comparison), **B3** (+ `POST /public/leads`, landowner/joint-venture leads; `/landowners` page in F4), new **B2b + F3b** (editable site content, construction updates with public timeline).

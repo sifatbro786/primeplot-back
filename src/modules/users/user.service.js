@@ -85,7 +85,7 @@ async function sendSetupLink({ org, user, actorId, ip }) {
     data: {
       name: user.name,
       orgName: org.name,
-      url: `${env.CLIENT_URL}/setup-account?token=${token}`,
+      url: `${env.CLIENT_URL}/${user.locale === 'en' ? 'en' : 'bn'}/setup-account?token=${token}`,
       expiresHours: TOKEN_TTL_MS.account_setup / 3_600_000,
     },
   });

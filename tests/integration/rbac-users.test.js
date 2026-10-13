@@ -130,4 +130,31 @@ describe('organization', () => {
     expect(res.status).toBe(200);
     expect(res.body.data).toMatchObject({ nameBn: 'অ্যাকমি', phone: '+8801812345678' });
   });
+
+  it('tracking IDs: validated, normalised, clearable, shown on /org/public', async () => {
+    const adm = await loginAgent(request, app, admin);
+    const bad = await adm
+      .patch('/api/v1/org')
+      .send({ analytics: { ga4MeasurementId: 'UA-123-1', metaPixelId: '12ab' } });
+    expect(bad.status).toBe(422);
+    expect(bad.body.error.code).toBe('VALIDATION_ERROR');
+
+    const set = await adm
+      .patch('/api/v1/org')
+      .send({ analytics: { ga4MeasurementId: ' g-abc123xyz9 ', metaPixelId: '123456789012345' } });
+    expect(set.status).toBe(200);
+    expect(set.body.data.analytics).toEqual({
+      ga4MeasurementId: 'G-ABC123XYZ9',
+      metaPixelId: '123456789012345',
+    });
+    const pub = await request(app).get('/api/v1/org/public');
+    expect(pub.body.data.analytics.ga4MeasurementId).toBe('G-ABC123XYZ9');
+
+    // Clearing one keeps the other.
+    const cleared = await adm.patch('/api/v1/org').send({ analytics: { ga4MeasurementId: '' } });
+    expect(cleared.body.data.analytics).toEqual({
+      ga4MeasurementId: null,
+      metaPixelId: '123456789012345',
+    });
+  });
 });

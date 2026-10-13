@@ -30,6 +30,18 @@ const organizationSchema = new mongoose.Schema(
       // Bangladesh fiscal year starts in July — drives receipt numbering (B4).
       fiscalYearStartMonth: { type: Number, min: 1, max: 12, default: 7 },
     },
+    // Website tracking IDs, managed from Company settings. Public by nature (they ship in the
+    // page HTML); the site loads the tags only after the visitor's cookie consent. Empty = off.
+    analytics: {
+      ga4MeasurementId: {
+        type: String,
+        trim: true,
+        uppercase: true,
+        match: /^G-[A-Z0-9]{4,15}$/,
+        default: null,
+      },
+      metaPixelId: { type: String, trim: true, match: /^\d{8,20}$/, default: null },
+    },
   },
   { collection: 'organizations' },
 );

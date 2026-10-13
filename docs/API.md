@@ -141,13 +141,13 @@ Revokes one of **your own** sessions (`404` otherwise). Revoking the current one
 ---
 
 ### `GET /org/public` (no auth)
-`200 { name, nameBn, logoMediaId, logo: Media|null, phone, email, address, addressBn, website, tradeLicenseNo, rehabMemberNo, defaultLocale, features: { onlinePayment } }` — for the login page and the public site header/footer (`logo` = the public logo media with URLs). `PATCH /org` revalidates the website tag `org`.
+`200 { name, nameBn, logoMediaId, logo: Media|null, phone, email, address, addressBn, website, tradeLicenseNo, rehabMemberNo, legalName, analytics: { ga4MeasurementId, metaPixelId }, defaultLocale, features: { onlinePayment } }` — for the login page and the public site header/footer, Privacy/Terms (`legalName`) and the consent-gated tracking tags (`analytics`, `null` = off; these IDs are public by nature) (`logo` = the public logo media with URLs). `PATCH /org` revalidates the website tag `org`.
 
 ### `GET /org` 🔒 `org:read`
 `200 { …org, features }`
 
 ### `PATCH /org` 🔒 `org:update`
-Body (any of): `name, nameBn, legalName, email, phone, address, addressBn, website, tradeLicenseNo, rehabMemberNo, logoMediaId, settings: { defaultLocale, fiscalYearStartMonth }` → `200 org`. Nullable fields accept `null`. `website` must be an `http(s)://` URL (it is rendered as a link).
+Body (any of): `name, nameBn, legalName, email, phone, address, addressBn, website, tradeLicenseNo, rehabMemberNo, logoMediaId, settings: { defaultLocale, fiscalYearStartMonth }, analytics: { ga4MeasurementId, metaPixelId }` → `200 org`. `ga4MeasurementId` = `G-` + 4–15 letters/digits (upper-cased), `metaPixelId` = 8–20 digits; `""` or `null` clears one, an omitted key is left as is. Nullable fields accept `null`. `website` must be an `http(s)://` URL (it is rendered as a link).
 
 ---
 

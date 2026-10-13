@@ -32,6 +32,8 @@ router.get('/public', async (req, res) => {
     website: o.website,
     tradeLicenseNo: o.tradeLicenseNo,
     rehabMemberNo: o.rehabMemberNo,
+    legalName: o.legalName, // Privacy Policy / Terms
+    analytics: o.analytics, // tag IDs — public by nature; loaded only after cookie consent
     defaultLocale: o.settings?.defaultLocale ?? 'bn',
     features: { onlinePayment: integrationStatus(req.orgId).onlinePayment },
   });
@@ -42,6 +44,16 @@ router.get('/', authenticate, authorize(P.ORG_READ), (req, res) => {
 });
 
 const str = (max) => z.string().trim().max(max).nullable().optional();
+// '' clears a tracking ID (same as null).
+const trackingId = (re, msg) =>
+  z
+    .string()
+    .trim()
+    .transform((v) => v.toUpperCase())
+    .refine((v) => v === '' || re.test(v), msg)
+    .transform((v) => v || null)
+    .nullable()
+    .optional();
 
 router.patch(
   '/',
@@ -73,6 +85,16 @@ router.patch(
           })
           .strict()
           .optional(),
+        analytics: z
+          .object({
+            ga4MeasurementId: trackingId(
+              /^G-[A-Z0-9]{4,15}$/,
+              'GA4 Measurement ID looks like G-XXXXXXXXXX',
+            ),
+            metaPixelId: trackingId(/^\d{8,20}$/, 'Meta Pixel ID is 8–20 digits'),
+          })
+          .strict()
+          .optional(),
       })
       .strict(),
   }),
@@ -89,7 +111,7 @@ router.patch(
         entity: { type: 'Organization', id: org._id },
         diff,
       });
-      // Name, logo and contact details show in the website header/footer.
+      // Name, logo, contact details and tracking IDs are used by the public website.
       await queueRevalidate(req.orgId, ['org']);
     }
     ok(res, toPublicOrg(org));

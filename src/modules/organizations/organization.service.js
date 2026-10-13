@@ -61,6 +61,10 @@ export function toPublicOrg(org) {
     rehabMemberNo: org.rehabMemberNo ?? null,
     logoMediaId: org.logoMediaId ? String(org.logoMediaId) : null,
     settings: org.settings,
+    analytics: {
+      ga4MeasurementId: org.analytics?.ga4MeasurementId ?? null,
+      metaPixelId: org.analytics?.metaPixelId ?? null,
+    },
   };
 }
 
@@ -88,10 +92,13 @@ export async function updateOrg(orgId, patch) {
   if (patch.settings) {
     for (const [k, v] of Object.entries(patch.settings)) org.set(`settings.${k}`, v);
   }
+  if (patch.analytics) {
+    for (const [k, v] of Object.entries(patch.analytics)) org.set(`analytics.${k}`, v);
+  }
   await org.save();
   invalidateOrgCache();
   return {
     org: org.toObject(),
-    diff: diffFields(before, org.toObject(), [...EDITABLE, 'settings']),
+    diff: diffFields(before, org.toObject(), [...EDITABLE, 'settings', 'analytics']),
   };
 }

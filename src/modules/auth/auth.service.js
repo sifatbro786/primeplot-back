@@ -194,7 +194,8 @@ export async function forgotPassword({ org, email, ctx }) {
     data: {
       name: user.name,
       orgName: org.name,
-      url: `${env.CLIENT_URL}/${path}?token=${token}`,
+      // Locale in the link: opens the page in the user's language without a redirect hop.
+      url: `${env.CLIENT_URL}/${user.locale === 'en' ? 'en' : 'bn'}/${path}?token=${token}`,
       expiresMin: TOKEN_TTL_MS.password_reset / 60_000,
       expiresHours: TOKEN_TTL_MS.account_setup / 3_600_000,
     },
