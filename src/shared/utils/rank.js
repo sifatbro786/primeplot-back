@@ -16,5 +16,10 @@ import { generateKeyBetween } from 'fractional-indexing';
 export const RANK_RE = /^[0-9A-Za-z]{2,64}$/;
 
 export function rankBetween(a = null, b = null) {
+  // fractional-indexing ≥3.3 silently swaps out-of-order neighbours. A swapped pair means the
+  // caller's view of the column is stale, so refuse instead of writing a rank in the wrong place.
+  if (a !== null && b !== null && a >= b) {
+    throw new RangeError(`rankBetween: "${a}" must sort before "${b}"`);
+  }
   return generateKeyBetween(a, b);
 }

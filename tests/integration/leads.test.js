@@ -219,14 +219,14 @@ describe('visibility & manual entry', () => {
     expect(
       (
         await EA.post('/api/v1/leads').send({
-          name: 'X',
+          name: 'Xavier',
           phone: '01712345678',
           assigneeId: String(execB._id),
         })
       ).status,
     ).toBe(403);
     const r = await M.post('/api/v1/leads').send({
-      name: 'X',
+      name: 'Xavier',
       phone: '01712345678',
       assigneeId: String(execB._id),
     });
@@ -460,7 +460,7 @@ describe('assignment & merge', () => {
     const ids = [];
     for (const p of ['01712345671', '01712345672', '01712345673']) {
       ids.push(
-        (await M.post('/api/v1/leads').send({ name: 'X', phone: p, assigneeId: null })).body.data
+        (await M.post('/api/v1/leads').send({ name: 'Xavier', phone: p, assigneeId: null })).body.data
           .id,
       );
     }

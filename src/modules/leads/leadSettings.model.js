@@ -56,6 +56,7 @@ const leadSettingsSchema = new mongoose.Schema(
 );
 
 leadSettingsSchema.plugin(baseSchema, { softDelete: false });
-leadSettingsSchema.index({ orgId: 1 }, { unique: true });
+// baseSchema already indexes orgId; make that single index unique instead of declaring a second one.
+leadSettingsSchema.path('orgId').index({ unique: true });
 
 export const LeadSettings = mongoose.model('LeadSettings', leadSettingsSchema);
