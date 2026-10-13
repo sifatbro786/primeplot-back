@@ -9,9 +9,9 @@
 
 | | |
 |---|---|
-| **Current phase** | B3: Leads & CRM — **B3.1 code complete** (core CRM + website form). Next: B3.2 (SMS, auto-reply, SLA escalation, Meta Lead Ads) or F4 CRM UI |
-| **Last completed** | B3.1: leads, dedupe, round-robin, pipeline/Kanban API, activities, tasks + reminders, notifications, `POST /public/leads` (2026-10-13) |
-| **Next step** | Owner: backend `npm install` (new: fractional-indexing) + `npm test` (new `leads.test.js`, 24 cases) + `npm run seed -- --sync-indexes`; frontend `.env` `NEXT_PUBLIC_LEADS_ENABLED=true`, submit the website form → then B3.2 |
+| **Current phase** | B3: Leads & CRM — **B3.1 + B3.2 code complete** (core CRM, website form, SMS + auto-reply, SLA escalation, Meta Lead Ads). Next: **F4 CRM UI** (full, incl. integration settings) |
+| **Last completed** | B3.2: SMS drivers + delivery log + segment/cost preview, customer auto-reply, SLA escalation, Meta Lead Ads webhook/import/nightly reconcile, integration admin API (2026-10-13) |
+| **Next step** | Owner: `npm install`, `npm run seed -- --sync-indexes` (new collections + LeadSettings unique index), `npm test` (new `integrations.test.js`), `npm run sms:check`; optional: Meta app + `npm run meta:connect`. Then **F4** |
 | **Blocker** | None. D1/D3/D4 still open (not blocking F2/F3) |
 
 ---
@@ -26,6 +26,7 @@
 | D4 | v1/v2 split | See ARCHITECTURE §4 (proposed) | Before B2 |
 
 ## ✅ Resolved decisions
+- 2026-10-13: **B3.2 defaults** (owner accepted) — auto-reply only for new website/Meta leads (not manual, not repeat enquiries), max 1 per phone per 24 h; SLA miss → one in-app notification to every manager (no SMS to managers); BN 70/67, EN 160/153 segments with a cost preview; Meta page token encrypted, nightly 48-hour reconcile. **Order:** B3.2 first, then the full F4. **F4 decisions:** saved views = preset views + filters in the URL (no backend); phone Kanban = one column at a time (tabs) + "Move to…" menu, drag on desktop
 - 2026-10-13: **B3 scope** (owner) — new leads **round-robin** among active sales executives (per-project teams optional; `manual` mode = unassigned queue); first-response **SLA 30 office minutes** (09:00–20:00 Dhaka, Friday off, editable) with manager escalation; customer **auto-reply SMS on** (editable BN/EN text, can be switched off); B3 split into **B3.1** (core CRM + website form) and **B3.2** (SMS, auto-reply, SLA escalation, Meta Lead Ads)
 - 2026-10-13: **Tracking IDs from the dashboard** (owner) — GA4 Measurement ID + Meta Pixel ID live on the Organization (`analytics`), edited in Company settings, not `.env`. Privacy/Terms use the settings' **legal name** (falls back to the company name); both pages linked from the footer
 - 2026-10-11: single-tenant + `orgId`; apartment + plot; no Redis
@@ -124,16 +125,18 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] CSV export (managers), API contract in `docs/API.md`
 - [~] Tests: unit 18 new ✔ in sandbox; integration `tests/integration/leads.test.js` written — owner runs `npm test`
 
-**B3.2 — integrations (next)**
-- [ ] SMS adapter (log + BulkSMSBD + SSL Wireless drivers, env-driven), delivery log, segment/cost preview, customer auto-reply
-- [ ] SLA escalation job (notify managers when `slaDueAt` passes without a first response)
-- [ ] Meta Lead Ads webhook + Graph fetch job + nightly reconcile (page token encrypted)
+**B3.2 — integrations (code complete 2026-10-13)**
+- [x] SMS adapter (log + BulkSMSBD + SSL Wireless drivers, env-driven), delivery log, segment/cost preview, customer auto-reply
+- [x] SLA escalation job (notify managers when `slaDueAt` passes without a first response)
+- [x] Meta Lead Ads webhook + Graph fetch job + nightly reconcile (page token encrypted), form → pipeline/project mapping, import log + retry
+- [x] Integration admin API (`/integrations`), `npm run sms:check`, `npm run meta:connect`
+- [~] Tests: unit 37 new ✔ in sandbox; integration `tests/integration/integrations.test.js` (18 cases) written — owner runs `npm test`
 
-### F4: CRM UI (Frontend)
-- [ ] Leads table (filters, saved views)
-- [ ] Kanban (dnd-kit, optimistic)
-- [ ] Lead drawer: timeline, notes/calls, tasks
-- [ ] Integration settings (Meta page connect, SMS), templates
+### F4: CRM UI (Frontend) — scope agreed 2026-10-13
+- [ ] F4.1 Leads table (filters in the URL, preset views: mine / unassigned / SLA missed / follow-up today, bulk assign, CSV) + Kanban per pipeline (dnd-kit, optimistic, stale → snap back; lost → reason; SLA chip; phone: column tabs + "Move to…") + manual lead drawer (duplicate → open existing)
+- [ ] F4.2 Lead drawer: header with call / WhatsApp (+ outcome prompt), details edit, timeline (incl. auto-reply / SLA / Meta entries), notes & calls, tasks, reassign / merge / reopen
+- [ ] F4.3 Notification bell (live), "My tasks", pipeline stage editor, CRM settings (assignment, teams, office hours, SLA, auto-reply text with live SMS length/cost), **integration settings** (Meta Page connect, form mapping, import log + retry, sync; SMS status, test SMS, delivery log)
+- [ ] F4.4 Public `/landowners` page + form; website lead forms switched on, end-to-end check
 
 ### B2b + F3b: Site content & construction updates — owner-approved 2026-10-13 (after F4)
 - [ ] Backend: `SiteContent` (home hero text, about text, buying steps — BN/EN, versioned, revalidates `org`/`site` tags) + `ConstructionUpdate` (project, date, stage %, note BN/EN, photos; publish flag)
@@ -188,6 +191,19 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 ---
 
 ## 📝 Session Log (newest first)
+
+### 2026-10-13 (7): B3.1 test fixes + B3.2 — SMS, auto-reply, SLA escalation, Meta Lead Ads
+- **B3.1 fixes (owner's `npm test`):** two leads tests used a one-letter name (schema needs ≥ 2) → fixed in the test; `rankBetween()` now refuses out-of-order neighbours itself (`fractional-indexing` ≥ 3.3 silently swaps them); `LeadSettings` had a duplicate `orgId` index (the unique one was never applied) → one unique index via `path('orgId').index({ unique: true })` — **run `npm run seed -- --sync-indexes`**.
+- **Owner decisions:** B3.2 defaults accepted, B3.2 before the full F4; F4 saved views = presets + URL; phone Kanban = tabs + "Move to…" (see Resolved decisions).
+- **SMS** (`src/integrations/sms/`): `segments.js` (GSM-7/UCS-2, extension chars, never splits an escape or surrogate pair), drivers `log` / `bulksmsbd` (form POST, `response_code` 202, code table) / `sslwireless` (API v3 JSON with a unique `csms_id`), credentials only in the body, timeouts, retryable vs permanent errors. Formats checked against the providers' published client libraries. Env: `SMS_API_URL`, `SMS_COST_PER_SEGMENT_POISHA`; a real driver without key + sender ID refuses to boot.
+- **Delivery log** (`src/modules/sms/`): `SmsMessage` (queued → sent | failed | skipped), job `sms.send` (4 attempts), expiry, foreign numbers skipped, setup errors alert admins (`integration.error`, throttled 6 h — `src/modules/integrations/alerts.js`).
+- **Auto-reply** (`leads/autoReply.js`, `autoReplyText.js`): new website/Meta leads only, once per phone per 24 h, language from the page or the company default, `{name}`/`{company}`, given up after 30 min, timeline `auto_reply`. Settings refuse a text longer than 6 SMS (`AUTO_REPLY_TOO_LONG`).
+- **SLA escalation:** `escalateSlaBreaches()` + job `leads.slaEscalation` (every minute) → `lead.sla_breached` to every manager once per lead (`Lead.slaEscalatedAt`), timeline `sla_escalated`, misses older than 7 days ignored.
+- **Meta Lead Ads** (`src/integrations/meta/`, `src/modules/meta/`): Graph client (Bearer token + `appsecret_proof`, error classes, field fallback), `MetaConnection` (Page token AES-256-GCM — `encryptSecret`/`decryptSecret` in `shared/crypto/secrets.js`), `MetaLeadEvent` (idempotency per leadgen id + import log), webhook `/api/v1/webhooks/meta` (verify echo, `X-Hub-Signature-256` over the raw body — `app.js` keeps it for `/webhooks/*`), jobs `meta.fetchLead` + `meta.reconcile` (nightly 02–06 Dhaka, 48 h), form → pipeline/project mapping, import into the normal intake (dedupe, round-robin, SLA, auto-reply), retry, sync. Graph `v25.0` (env `META_GRAPH_VERSION`).
+- **Admin API** `/api/v1/integrations` (+ `docs/API.md` B3.2 section). New notification types `lead.sla_breached`, `integration.error`; new activity types `auto_reply`, `sla_escalated`, `meta_lead`. Scripts `npm run sms:check`, `npm run meta:connect`. Seed `--sync-indexes` covers the 3 new collections.
+- **Verified in sandbox:** ESLint, Prettier, esbuild + `node --check` on every changed file, 118 unit tests (37 new: segment maths, both drivers' request/response/error mapping with mocked HTTP, log driver, csms_id length, token encryption + tamper, webhook signature, leadgen parsing, Graph auth/proof/error classes/field fallback/paging, lead field mapping, reconcile window, schemas), env cross-checks, webhook smoke test through the real app (verify 200/403, signature 401/200, tampered body 401), Mongoose validation of the new documents.
+- **Not verified:** anything needing MongoDB (`tests/integration/integrations.test.js`, 18 cases: auto-reply rules, delivery, expiry, foreign numbers, settings length check, SLA escalation, admin permissions, preview, test SMS, Meta connect/bad token, webhook dedupe, import, repeat enquiry, NO_PHONE, form mapping, expired token + retry, reconcile, disconnect) → owner runs `npm test`. Real BulkSMSBD / SSL Wireless sends and real Meta calls need the owner's accounts.
+- Known limits: "sent" = accepted by the gateway (no handset delivery reports); BulkSMSBD has no request id, so a timeout after it accepted a message can send it twice (SSL Wireless dedupes on `csms_id`); Meta webhooks need a public HTTPS URL (dev: a tunnel such as `cloudflared`); the Meta Page is connected with a pasted token (no Facebook Login button in v1).
 
 ### 2026-10-13 (6): B3.1 — core CRM + website form
 - **Owner decisions:** round-robin, 30-minute office-hours SLA, auto-reply SMS on (setting), B3 split into B3.1/B3.2 (see Resolved decisions).

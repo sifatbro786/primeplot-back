@@ -25,6 +25,8 @@ export function getIntegrationConfig(_orgId, name) {
         senderId: env.SMS_SENDER_ID,
         apiUser: env.SMS_API_USER,
         apiPass: env.SMS_API_PASS,
+        baseUrl: env.SMS_API_URL,
+        costPerSegmentPoisha: env.SMS_COST_PER_SEGMENT_POISHA ?? null,
       };
     case 'payment':
       return {
@@ -35,7 +37,14 @@ export function getIntegrationConfig(_orgId, name) {
         isLive: env.SSLCZ_IS_LIVE,
       };
     case 'meta':
-      return { enabled: false }; // B3
+      // App-level secrets only; the connected Page (+ its encrypted token) lives in the DB.
+      return {
+        enabled: env.features.metaLeads,
+        appId: env.META_APP_ID,
+        appSecret: env.META_APP_SECRET,
+        verifyToken: env.META_VERIFY_TOKEN,
+        graphVersion: env.META_GRAPH_VERSION,
+      };
     default:
       throw new Error(`Unknown integration: ${name}`);
   }

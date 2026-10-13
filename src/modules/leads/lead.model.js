@@ -91,6 +91,7 @@ const leadSchema = new mongoose.Schema(
     assignedAt: { type: Date, default: null },
     slaDueAt: { type: Date, default: null }, // first response due (office hours aware)
     firstResponseAt: { type: Date, default: null },
+    slaEscalatedAt: { type: Date, default: null }, // managers were told the SLA was missed (once)
     lastActivityAt: { type: Date, default: null },
     nextFollowUpAt: { type: Date, default: null }, // earliest open task
 

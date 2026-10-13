@@ -8,6 +8,8 @@ export const NOTIFICATION_TYPES = Object.freeze([
   'lead.enquiry', // your lead enquired again (website / Facebook)
   'lead.unassigned', // a new lead nobody owns (to people who can assign)
   'task.due', // your follow-up is due
+  'lead.sla_breached', // a new lead waited past its first-response time (to managers)
+  'integration.error', // Meta / SMS stopped working (to admins)
 ]);
 
 const TTL_DAYS = 90;

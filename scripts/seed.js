@@ -29,6 +29,9 @@ import '#modules/leads/leadActivity.model.js';
 import '#modules/leads/leadTask.model.js';
 import '#modules/leads/leadSettings.model.js';
 import '#modules/notifications/notification.model.js';
+import '#modules/sms/smsMessage.model.js';
+import '#modules/meta/metaConnection.model.js';
+import '#modules/meta/metaLeadEvent.model.js';
 import { assertPasswordAllowed, zPassword } from '#modules/auth/passwordPolicy.js';
 
 const { values: a } = parseArgs({

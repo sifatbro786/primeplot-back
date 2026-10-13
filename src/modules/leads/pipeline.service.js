@@ -4,9 +4,11 @@ import { withTransaction } from '#shared/db/withTransaction.js';
 import { BadRequestError, ConflictError } from '#shared/errors/AppError.js';
 import { diffFields } from '#shared/utils/diff.js';
 import { audit } from '#modules/audit/audit.service.js';
+import { Organization } from '#modules/organizations/organization.model.js';
 import { getProjectAccess } from '#modules/projects/project.service.js';
 import { listActiveStaffWith } from '#modules/users/user.service.js';
 import { Lead } from './lead.model.js';
+import { AUTO_REPLY_MAX_SEGMENTS, checkAutoReply } from './autoReplyText.js';
 import { DEFAULT_STAGES, LeadStage } from './leadStage.model.js';
 import { LeadSettings } from './leadSettings.model.js';
 
@@ -230,7 +232,29 @@ export async function updateSettings({ orgId, patch, ctx }) {
   if (patch.assignment?.mode) doc.assignment.mode = patch.assignment.mode;
   if (pools) doc.assignment.projectPools = pools;
   if (patch.sla) Object.assign(doc.sla, patch.sla);
-  if (patch.autoReply) Object.assign(doc.autoReply, patch.autoReply);
+  if (patch.autoReply) {
+    Object.assign(doc.autoReply, patch.autoReply);
+    // Each SMS segment costs money: keep the filled-in text within AUTO_REPLY_MAX_SEGMENTS.
+    const org = await Organization.findOne({ _id: orgId }).select('name nameBn').lean();
+    const details = [];
+    for (const [field, locale] of [
+      ['textBn', 'bn'],
+      ['textEn', 'en'],
+    ]) {
+      if (patch.autoReply[field] === undefined) continue;
+      const c = checkAutoReply(doc.autoReply[field], { org, locale });
+      if (!c.ok)
+        details.push({
+          path: `autoReply.${field}`,
+          message: `${c.segments} SMS long — keep it within ${AUTO_REPLY_MAX_SEGMENTS}`,
+        });
+    }
+    if (details.length)
+      throw new BadRequestError('Auto-reply text is too long', {
+        code: 'AUTO_REPLY_TOO_LONG',
+        details,
+      });
+  }
   if (doc.sla.officeEnd <= doc.sla.officeStart) {
     throw new BadRequestError('Office hours must end after they start', {
       code: 'INVALID_OFFICE_HOURS',

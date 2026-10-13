@@ -24,6 +24,9 @@ export const SYSTEM_ACTIVITY_TYPES = Object.freeze([
   'task_created',
   'task_done',
   'updated',
+  'auto_reply', // B3.2: SMS auto-reply settled — meta { smsId, status, segments, errorCode }
+  'sla_escalated', // B3.2: first response overdue, managers notified — meta { dueAt, notified }
+  'meta_lead', // B3.2: arrived from a Meta lead form — meta { leadgenId, formId, formName, adName, campaign }
 ]);
 export const CALL_OUTCOMES = Object.freeze([
   'connected',

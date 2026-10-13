@@ -101,6 +101,43 @@ const schema = z.object({
   SMS_SENDER_ID: optionalStr,
   SMS_API_USER: optionalStr,
   SMS_API_PASS: optionalStr,
+  // Provider base URL override (default: the driver's public endpoint).
+  SMS_API_URL: z.url().optional(),
+  // What one SMS segment costs on your plan, in poisha (e.g. 35 = ৳0.35). Empty = cost unknown.
+  SMS_COST_PER_SEGMENT_POISHA: z.coerce.number().int().min(0).max(100_000).optional(),
+
+  // Meta Lead Ads (B3.2). The webhook works once the app secret and the verify token are set;
+  // the Page itself is connected from the dashboard (its token is stored encrypted in the DB).
+  META_APP_ID: optionalStr,
+  META_APP_SECRET: optionalStr,
+  META_VERIFY_TOKEN: optionalStr,
+  META_GRAPH_VERSION: z
+    .string()
+    .regex(/^v\d{2}\.0$/, 'META_GRAPH_VERSION looks like v25.0')
+    .default('v25.0'),
+});
+
+/** Cross-field rules. */
+const checked = schema.superRefine((v, ctx) => {
+  // A real SMS driver without its keys would fail every send — refuse to boot instead.
+  if (v.SMS_DRIVER !== 'log') {
+    for (const key of ['SMS_API_KEY', 'SMS_SENDER_ID']) {
+      if (!v[key]) {
+        ctx.addIssue({
+          code: 'custom',
+          path: [key],
+          message: `Required when SMS_DRIVER=${v.SMS_DRIVER}`,
+        });
+      }
+    }
+  }
+  if (Boolean(v.META_APP_SECRET) !== Boolean(v.META_VERIFY_TOKEN)) {
+    ctx.addIssue({
+      code: 'custom',
+      path: [v.META_APP_SECRET ? 'META_VERIFY_TOKEN' : 'META_APP_SECRET'],
+      message: 'META_APP_SECRET and META_VERIFY_TOKEN go together',
+    });
+  }
 });
 
 // `KEY=` (empty) in .env means "not set" — let defaults/optional apply instead of failing
@@ -109,7 +146,7 @@ const raw = Object.fromEntries(
   Object.entries(process.env).map(([k, v]) => [k, v === '' ? undefined : v]),
 );
 
-const parsed = schema.safeParse(raw);
+const parsed = checked.safeParse(raw);
 
 if (!parsed.success) {
   // Logger depends on env, so plain console here. Never print values — only keys.
@@ -136,6 +173,7 @@ export const env = Object.freeze({
     sslcommerz: Boolean(e.SSLCZ_STORE_ID && e.SSLCZ_STORE_PASS),
     sms: e.SMS_DRIVER !== 'log',
     revalidate: Boolean(e.REVALIDATE_SECRET),
+    metaLeads: Boolean(e.META_APP_SECRET && e.META_VERIFY_TOKEN),
   }),
   revalidateUrl: e.FRONTEND_REVALIDATE_URL ?? `${e.CLIENT_URL.replace(/\/+$/, '')}/api/revalidate`,
 });

@@ -391,7 +391,7 @@ The frontend route (F2) must: read the raw body, recompute the HMAC with the sam
 - **Versions:** edits, moves, assignment, settings and tasks send the `version` they loaded; a mismatch → `409 STALE_VERSION`.
 - **Money** (budgets) in poisha. Times are ISO UTC; "today" filters use Asia/Dhaka days.
 - **Assignment** (owner decision 2026-10-13): round-robin among active **sales executives**; a project can have its own team (rotation inside the team). `manual` mode leaves new leads unassigned and notifies users with `leads:assign`. Executives creating a lead own it.
-- **SLA** (owner decision): first response due **30 office minutes** after arrival (09:00–20:00 Dhaka, Friday off; editable). First response = the first call/SMS/email/WhatsApp/meeting/site-visit logged, or moving the lead out of the first stage. Escalation to managers comes in B3.2.
+- **SLA** (owner decision): first response due **30 office minutes** after arrival (09:00–20:00 Dhaka, Friday off; editable). First response = the first call/SMS/email/WhatsApp/meeting/site-visit logged, or moving the lead out of the first stage. If nobody responds in time, every manager (`leads:assign`) gets one `lead.sla_breached` notification and the timeline gets `sla_escalated` (B3.2; job every minute; misses older than 7 days are not alerted). The lead's `slaEscalatedAt` is then set.
 
 ### Shapes
 ```jsonc
@@ -411,7 +411,7 @@ The frontend route (F2) must: read the raw body, recompute the HMAC with the sam
   "rank": "a0V",                                       // Kanban order inside the stage
   "lostReason": null, "lostNote": null, "closedAt": null,
   "assigneeId": "…", "assigneeName": "Sumi", "assignedAt": "…",
-  "slaDueAt": "…", "firstResponseAt": null, "slaBreached": false,
+  "slaDueAt": "…", "firstResponseAt": null, "slaBreached": false, "slaEscalatedAt": null,
   "lastActivityAt": null, "nextFollowUpAt": "…",       // earliest open task
   "enquiryCount": 2, "lastEnquiryAt": "…", "tags": ["vip"],
   "previousLeadId": null, "createdAt": "…", "updatedAt": "…"
@@ -423,6 +423,7 @@ The frontend route (F2) must: read the raw body, recompute the HMAC with the sam
 { "id", "leadId", "type", "body", "outcome", "durationSec", "at", "actorId", "actorName", "meta", "createdAt" }
 //   staff types: note | call | sms | email | whatsapp | meeting | site_visit
 //   system types: created | enquiry | stage_change | assigned | merged | task_created | task_done | updated
+//                 | auto_reply | sla_escalated | meta_lead   (B3.2)
 //   call outcome: connected | no_answer | busy | switched_off | wrong_number | call_back
 //   meta examples: stage_change { from, to, status, lostReason } · assigned { from, to, fromName, toName, auto? }
 //                  enquiry { source, page, projectId } · updated { fields: [...] } · merged { sourceId, sourceName, sourcePhone }
@@ -470,7 +471,7 @@ Reminders: job `leads.taskReminders` (every minute) sends one `task.due` notific
 | `GET /leads/stages?type=buyer\|landowner` | `Stage[]` in order (`count` only for `leads:read_all`; readable by anyone with lead access) |
 | `PUT /leads/stages` | `{ pipeline, stages: [{ id? (existing), name, nameBn?, kind, color? }] }` (3–15; array order = column order) → `Stage[]` with counts. Needs ≥ 1 open, exactly 1 won, ≥ 1 lost (`400 INVALID_PIPELINE`). Leaving out a stage removes it — `409 STAGE_IN_USE` if it holds leads; `409 STAGE_KIND_LOCKED` when a stage with leads changes kind. New leads land in the first open stage |
 | `GET /leads/settings` | `{ version, assignment: { mode: round_robin\|manual, projectPools: [{ projectId, userIds }] }, sla: { enabled, firstResponseMinutes, officeStart: "09:00", officeEnd: "20:00", weekend: [5] }, autoReply: { enabled, textBn, textEn } }` |
-| `PATCH /leads/settings` | Any part + `version`. `400 INVALID_OFFICE_HOURS / INVALID_ASSIGNEE / UNKNOWN_PROJECT`. Auto-reply placeholders: `{name}`, `{company}` (sending starts in B3.2) |
+| `PATCH /leads/settings` | Any part + `version`. `400 INVALID_OFFICE_HOURS / INVALID_ASSIGNEE / UNKNOWN_PROJECT`. Auto-reply placeholders: `{name}`, `{company}`. The filled-in text (with a long sample name) must fit **6 SMS** → else `400 AUTO_REPLY_TOO_LONG` (`details[].path` = `autoReply.textBn` / `textEn`). Check the length live with `POST /integrations/sms/preview` |
 
 ### Website form — `POST /public/leads` (no auth)
 Body (strict): `{ type?: buyer|landowner, name, phone, email? ("" allowed), projectSlug?, unitId?, message?, land? (landowner), source: "website", page?, utm?: { source, medium, campaign }, hp, elapsedMs }`
@@ -490,3 +491,69 @@ Types and `data` (the dashboard renders the text in the viewer's language):
 - `lead.enquiry` `{ leadId, name, type, source }` — your lead enquired again (unassigned → managers)
 - `lead.unassigned` `{ leadId, name, type, source }` — new lead without an owner (to `leads:assign` users)
 - `task.due` `{ taskId, leadId, title, dueAt, leadName, leadPhone }`
+- `lead.sla_breached` `{ leadId, name, type, source, assigneeId, assigneeName, slaDueAt }` — first response overdue (to managers, once per lead) *(B3.2)*
+- `integration.error` `{ integration: "meta"|"sms", code, message }` — Meta token expired / SMS key, sender ID or balance problem (to admins; at most once per 6 h per code) *(B3.2)*
+
+---
+
+## B3.2 — SMS, auto-reply, SLA escalation, Meta Lead Ads
+
+### Auto-reply (customer SMS)
+- Sent for a **new** lead from the website form or a Meta lead form — not for manual entry, not for a repeat enquiry on an open lead.
+- At most **one per phone number in 24 hours**. Language: the website page (`/bn/…`, `/en/…`), else the company's default language. Text from `GET /leads/settings › autoReply` (`{name}` → the lead's name, max 40 chars; `{company}` → company name in that language).
+- Queued, sent by job `sms.send` (4 attempts, ~3.5 min); not sent if still undelivered after **30 minutes**. Foreign numbers (NRB) are logged as `skipped` — Bangladesh gateways can't reach them.
+- When settled, the lead's timeline gets `auto_reply` with `meta { smsId, status: sent|failed|skipped, segments, errorCode }`.
+
+### SMS
+- Drivers (env `SMS_DRIVER`): `log` (default — nothing leaves the server), `bulksmsbd` (form POST `https://bulksmsbd.net/api/smsapi`: `api_key, senderid, number, message`; `response_code 202` = accepted), `sslwireless` (JSON POST `https://smsplus.sslwireless.com/api/v3/send-sms`: `api_token, sid, msisdn, sms, csms_id`; our `csms_id` is unique per message so a retry can't bill twice). `SMS_API_URL` overrides the base URL. A real driver without `SMS_API_KEY` + `SMS_SENDER_ID` refuses to boot.
+- Length: GSM-7 160 / 153 per part; anything outside GSM-7 (Bangla, emoji, curly quotes) → UCS-2 70 / 67 per part. Cost = segments × `SMS_COST_PER_SEGMENT_POISHA` (null when not set). Hard limit 8 segments per message (`400 SMS_TOO_LONG`).
+- "Sent" = accepted by the gateway (handset delivery reports are not collected in v1). Setup errors (`AUTH_FAILED, SENDER_ID_INVALID, INSUFFICIENT_BALANCE, BALANCE_EXPIRED, IP_NOT_WHITELISTED, MASKING_NEEDS_BANGLA`) raise an `integration.error` notification to admins.
+
+```jsonc
+// SmsMessage
+{ "id", "to": "+8801712345678", "body", "locale": "bn|en|null", "purpose": "lead_auto_reply|test", "leadId": null,
+  "encoding": "gsm7|ucs2", "segments": 2, "costPoisha": 70, "driver": "log|bulksmsbd|sslwireless",
+  "status": "queued|sent|failed|skipped", "attempts": 1, "error": { "code", "message" } | null,
+  "sentAt", "failedAt", "createdAt" }
+// error.code: UNSUPPORTED_DESTINATION · EXPIRED · INVALID_NUMBER · AUTH_FAILED · SENDER_ID_INVALID ·
+//             INSUFFICIENT_BALANCE · BALANCE_EXPIRED · IP_NOT_WHITELISTED · MASKING_NEEDS_BANGLA ·
+//             PROVIDER_REJECTED · PROVIDER_DOWN · PROVIDER_UNREACHABLE · PROVIDER_BAD_RESPONSE
+```
+
+### Integrations 🔒
+`settings:integrations` = admin. Rows marked ★ also allow `pipeline:manage` (managers edit the auto-reply text).
+
+| Endpoint | Notes |
+|---|---|
+| `GET /integrations` | `{ email: { enabled }, sms: { driver, live, senderId, costPerSegmentPoisha, thisMonth: { since, byStatus: { sent: { count, segments, costPoisha }, … } } }, meta: MetaStatus }` |
+| `GET /integrations/sms/messages?status&purpose&leadId&cursor&limit` ★ | Delivery log, newest first → `SmsMessage[]` + cursor meta |
+| `POST /integrations/sms/preview` ★ | `{ text ≤ 1600, locale?: bn\|en }` → `{ rendered, encoding, chars, units, segments, perSegment, remaining, costPoisha, maxSegments, driver, live, senderId, costPerSegmentPoisha }`. With `locale`, `{name}`/`{company}` are filled like the auto-reply (sample name "মোহাম্মদ রহিম উদ্দিন" / "Mohammad Rahim Uddin") |
+| `POST /integrations/sms/test` | `{ to (BD mobile), text? ≤ 480 }` → `201 SmsMessage` (queued). `400 INVALID_PHONE`. Rate-limited (10 / 15 min). Audited `integration.sms.test` |
+| `PUT /integrations/meta` | `{ pageId, accessToken }` — Page token, or a user / **system-user** token that manages the Page (the Page token is derived and stored AES-256-GCM encrypted; never returned). Subscribes the app to the Page's `leadgen` field and queues an import of the last 48 h → `MetaStatus`. Errors: `409 META_NOT_CONFIGURED` (env), `400 META_TOKEN_INVALID / META_PAGE_NOT_FOUND / META_PAGE_MISMATCH / META_SUBSCRIBE_FAILED` (`details[0]` has Meta's message), `409 META_PAGE_TAKEN`. Audited |
+| `DELETE /integrations/meta` | Unsubscribes (best effort) and removes the Page → `204`; `404` when none |
+| `GET /integrations/meta/forms` | Live from Meta: `[{ id, name, status, locale, createdTime, mapping: { type, projectId } \| null }]`. `409 META_TOKEN_UNREADABLE` when the server secret changed (connect again) |
+| `PUT /integrations/meta/forms` | `{ version, mappings: [{ formId, formName?, type: buyer\|landowner, projectId? }] ≤ 200 }` → `MetaConnection`. Unmapped forms → buyer pipeline, no project. `400 UNKNOWN_PROJECT / DUPLICATE_FORM`, `409 STALE_VERSION` |
+| `GET /integrations/meta/leads?status&cursor&limit` | Import log → `[{ id, leadgenId, formId, adId, via: webhook\|reconcile\|retry, status: received\|processing\|imported\|duplicate\|failed, attempts, leadId, leadName, error: { code, message, permanent } \| null, metaCreatedAt, processedAt, createdAt }]` |
+| `POST /integrations/meta/leads/:id/retry` | A `failed` import → queued again → `{ queued: true }`; `404` otherwise |
+| `POST /integrations/meta/sync` | Import the last 48 h now → `{ queued }` (false = one is already queued) |
+
+```jsonc
+// MetaStatus
+{ "configured": true, "graphVersion": "v25.0", "webhookPath": "/api/v1/webhooks/meta",
+  "connection": null | {
+    "version": 3, "pageId": "1122334455", "pageName": "Acme Homes", "tokenHint": "…efgh",
+    "status": "active|error", "lastError": { "code": "META_TOKEN_INVALID", "message", "at" } | null,
+    "formMappings": [{ "formId", "formName", "type", "projectId" }],
+    "connectedAt", "lastLeadAt", "lastReconciledAt", "lastReconcile": { "checked", "imported", "failed", "error" } },
+  "last7Days": { "imported": 12, "duplicate": 3, "failed": 1 } }
+```
+Import error codes: `NO_PHONE` (permanent — the form has no usable phone question), `NOT_CONNECTED`, `META_TOKEN_INVALID` (connection → `error`, admins alerted; retry after reconnecting), `META_RATE_LIMITED`, `META_UNREACHABLE`, `META_GRAPH_ERROR`, `INTAKE_FAILED`.
+
+### Meta webhook — `/webhooks/meta` (called by Meta, no auth)
+- `GET ?hub.mode=subscribe&hub.verify_token=<META_VERIFY_TOKEN>&hub.challenge=<n>` → `200 text/plain <n>`; wrong token → `403`.
+- `POST` (JSON, `X-Hub-Signature-256: sha256=<hex HMAC-SHA256(META_APP_SECRET, raw body)>`) → `200 EVENT_RECEIVED`; bad/missing signature → `401`. Each `leadgen` change is stored once per leadgen id and imported by job `meta.fetchLead` (6 attempts). Pages that aren't connected are ignored.
+- Whole route answers `404` while `META_APP_SECRET` / `META_VERIFY_TOKEN` are not set. Rate limit 600/min per IP.
+- Imported leads go through the same intake as the website form: dedupe by phone (repeat → enquiry), round-robin, SLA clock, auto-reply. `source` = `facebook` or `instagram`; `sourceDetail { campaign: campaign name, medium: "meta / paid"|"meta / organic", formName }`; standard questions → name / phone / email, every other answer → a "Question: answer" line in `message`. Timeline: `meta_lead { leadgenId, formId, formName, adName, adsetName, campaign, organic, duplicate }`.
+- Job `meta.reconcile`: once a night (02:00–06:00 Dhaka; any time if the last run is > 30 h old) it re-reads the last 48 h of every form and imports what is missing (or failed for a fixable reason).
+
+Audit actions added: `integration.meta.connect`, `integration.meta.disconnect`, `integration.meta.forms`, `integration.meta.retry`, `integration.sms.test`.

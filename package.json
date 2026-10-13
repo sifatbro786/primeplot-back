@@ -22,6 +22,8 @@
     "seed": "node scripts/seed.js",
     "seed:demo": "node scripts/seed-demo.js",
     "email:check": "node scripts/email-check.js",
+    "sms:check": "node scripts/sms-check.js",
+    "meta:connect": "node scripts/meta-connect.js",
     "test": "vitest run",
     "test:unit": "vitest run tests/unit",
     "test:watch": "vitest",

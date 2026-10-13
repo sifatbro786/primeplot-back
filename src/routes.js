@@ -12,6 +12,8 @@ import publicRoutes from '#modules/public/public.routes.js';
 import leadRoutes from '#modules/leads/lead.routes.js';
 import publicLeadRoutes from '#modules/leads/publicLead.routes.js';
 import notificationRoutes from '#modules/notifications/notification.routes.js';
+import integrationRoutes from '#modules/integrations/integration.routes.js';
+import metaWebhookRoutes from '#modules/meta/metaWebhook.routes.js';
 import internalRoutes from '#jobs/jobs.routes.js';
 import { limits } from '#shared/middleware/rateLimit.js';
 import { originGuard } from '#shared/middleware/originGuard.js';
@@ -24,7 +26,8 @@ const api = Router();
 api.use('/health', healthRoutes);
 api.use('/internal', internalRoutes);
 
-// Cross-origin webhooks/callbacks (Meta, SSLCommerz) will mount HERE, before originGuard.
+// Cross-origin webhooks/callbacks (Meta; SSLCommerz later) — before originGuard and resolveOrg.
+api.use('/webhooks/meta', metaWebhookRoutes);
 
 api.use(limits.api);
 api.use(originGuard);
@@ -40,6 +43,7 @@ api.use('/units', unitRoutes);
 api.use('/floorplans', floorPlanRoutes);
 api.use('/leads', leadRoutes);
 api.use('/notifications', notificationRoutes);
+api.use('/integrations', integrationRoutes);
 api.use('/public/leads', publicLeadRoutes); // website enquiry form — before the cached catalogue
 api.use('/public', publicRoutes); // website catalogue — no auth
 

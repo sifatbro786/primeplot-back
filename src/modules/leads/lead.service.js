@@ -32,6 +32,7 @@ import {
   pickAssignee,
   toStage,
 } from './pipeline.service.js';
+import { localeFromPage, sendAutoReply } from './autoReply.js';
 import { slaDueAt } from './sla.js';
 
 /**
@@ -123,6 +124,7 @@ export function toLead(l, refs = {}, now = new Date()) {
     assignedAt: l.assignedAt ?? null,
     slaDueAt: l.slaDueAt ?? null,
     firstResponseAt: l.firstResponseAt ?? null,
+    slaEscalatedAt: l.slaEscalatedAt ?? null,
     slaBreached: Boolean(
       l.slaDueAt &&
       (l.firstResponseAt
@@ -416,7 +418,10 @@ export async function createWebsiteLead(orgId, body) {
     interest,
     land: body.type === 'landowner' ? landIn(body.land) : undefined,
   };
-  return intakeLead(orgId, input, { onDuplicate: 'enquiry' });
+  const res = await intakeLead(orgId, input, { onDuplicate: 'enquiry' });
+  if (!res.duplicate)
+    await sendAutoReply(orgId, res.lead, { locale: localeFromPage(body.page, null) });
+  return res;
 }
 
 /** Staff: manual entry. A duplicate open lead → 409 DUPLICATE_LEAD (with its id when visible). */
@@ -1020,6 +1025,59 @@ export async function deleteLead({ orgId, user, id, ctx }) {
     entity: { type: 'Lead', id: doc._id },
     meta: { name: doc.name, phone: doc.phone },
   });
+}
+
+// ── SLA escalation (B3.2) ───────────────────────────────────────────────────────
+
+const ESCALATE_LOOKBACK_MS = 7 * DAY; // older misses are history, not alerts (first deploy, long outage)
+
+/**
+ * Job `leads.slaEscalation` (every minute): an open lead whose first-response time passed with no
+ * response → every active manager (`leads:assign`) gets one `lead.sla_breached` notification and
+ * the timeline notes it. Once per lead: the lead is claimed atomically via `slaEscalatedAt`.
+ */
+export async function escalateSlaBreaches(orgId, { now = new Date(), batch = 200 } = {}) {
+  const due = await Lead.find({
+    orgId,
+    status: 'open',
+    firstResponseAt: null,
+    slaEscalatedAt: null,
+    slaDueAt: { $lte: now, $gte: new Date(now.getTime() - ESCALATE_LOOKBACK_MS) },
+  })
+    .sort({ slaDueAt: 1 })
+    .limit(batch)
+    .select('name type source assigneeId slaDueAt')
+    .lean();
+  if (!due.length) return { escalated: 0 };
+
+  const managers = await managersOf(orgId);
+  const names = await userNames(
+    orgId,
+    due.map((l) => l.assigneeId),
+  );
+  let escalated = 0;
+  for (const l of due) {
+    const claimed = await Lead.updateOne(
+      { orgId, _id: l._id, status: 'open', firstResponseAt: null, slaEscalatedAt: null },
+      { $set: { slaEscalatedAt: now } },
+    );
+    if (!claimed.modifiedCount) continue; // answered or claimed by another run meanwhile
+    await addActivity(orgId, l._id, 'sla_escalated', {
+      meta: { dueAt: l.slaDueAt, notified: managers.length },
+    });
+    await notify(orgId, managers, 'lead.sla_breached', {
+      leadId: String(l._id),
+      name: l.name,
+      type: l.type,
+      source: l.source,
+      assigneeId: idOrNull(l.assigneeId),
+      assigneeName: l.assigneeId ? (names.get(String(l.assigneeId)) ?? null) : null,
+      slaDueAt: l.slaDueAt,
+    });
+    escalated += 1;
+  }
+  if (escalated) log.info({ escalated }, 'SLA breaches escalated');
+  return { escalated };
 }
 
 /** Keep `nextFollowUpAt` = the earliest open task's due time. */

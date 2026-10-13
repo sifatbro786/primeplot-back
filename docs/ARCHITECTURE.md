@@ -173,9 +173,10 @@ PrimePlot is a real-estate management and CRM platform for Bangladeshi real-esta
   - verify the `X-Hub-Signature-256` raw body
   - return 200 immediately, then queue a job
   - fetch the lead from the Graph API
-  - idempotency through a unique index on `meta.leadgenId`
+  - idempotency through a unique index on the leadgen id (`meta_lead_events`, one row per Meta lead; B3.2)
   - nightly reconciliation
   - the page token is stored AES-GCM encrypted
+  - the Page is connected from the dashboard with a Page or system-user token (`PUT /integrations/meta`); app secret + verify token stay in env
 - **Integration config resolver:** `getIntegrationConfig(orgId, 'sms' | 'payment' | 'email' | 'meta')`.
   - v1 reads from env.
   - In future SaaS it will read encrypted per-org settings from the DB, with no module changes.
