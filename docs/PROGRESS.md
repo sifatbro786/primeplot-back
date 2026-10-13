@@ -9,9 +9,9 @@
 
 | | |
 |---|---|
-| **Current phase** | B3: Leads & CRM — **B3.1 + B3.2 code complete** (core CRM, website form, SMS + auto-reply, SLA escalation, Meta Lead Ads). Next: **F4 CRM UI** (full, incl. integration settings) |
-| **Last completed** | B3.2: SMS drivers + delivery log + segment/cost preview, customer auto-reply, SLA escalation, Meta Lead Ads webhook/import/nightly reconcile, integration admin API (2026-10-13) |
-| **Next step** | Owner: `npm install`, `npm run seed -- --sync-indexes` (new collections + LeadSettings unique index), `npm test` (new `integrations.test.js`), `npm run sms:check`; optional: Meta app + `npm run meta:connect`. Then **F4** |
+| **Current phase** | B3 + F4: Leads & CRM — **backend (B3.1 + B3.2) and CRM UI (F4.1–F4.4) code complete**. Next: owner end-to-end check, then **B2b + F3b** (site content + construction updates) |
+| **Last completed** | F4: leads table + Kanban, lead drawer, notification bell, My tasks, CRM settings, integration settings, public `/landowners` page; website lead forms switched on (2026-10-13) |
+| **Next step** | Owner: backend `npm run seed -- --sync-indexes` + `npm test` (if not done after B3.2); frontend `npm install` (adds `@dnd-kit/core`), set `NEXT_PUBLIC_LEADS_ENABLED=true` in `.env`, then the F4 end-to-end check (see session log 8). Then **B2b + F3b** |
 | **Blocker** | None. D1/D3/D4 still open (not blocking F2/F3) |
 
 ---
@@ -133,10 +133,10 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [~] Tests: unit 37 new ✔ in sandbox; integration `tests/integration/integrations.test.js` (18 cases) written — owner runs `npm test`
 
 ### F4: CRM UI (Frontend) — scope agreed 2026-10-13
-- [ ] F4.1 Leads table (filters in the URL, preset views: mine / unassigned / SLA missed / follow-up today, bulk assign, CSV) + Kanban per pipeline (dnd-kit, optimistic, stale → snap back; lost → reason; SLA chip; phone: column tabs + "Move to…") + manual lead drawer (duplicate → open existing)
-- [ ] F4.2 Lead drawer: header with call / WhatsApp (+ outcome prompt), details edit, timeline (incl. auto-reply / SLA / Meta entries), notes & calls, tasks, reassign / merge / reopen
-- [ ] F4.3 Notification bell (live), "My tasks", pipeline stage editor, CRM settings (assignment, teams, office hours, SLA, auto-reply text with live SMS length/cost), **integration settings** (Meta Page connect, form mapping, import log + retry, sync; SMS status, test SMS, delivery log)
-- [ ] F4.4 Public `/landowners` page + form; website lead forms switched on, end-to-end check
+- [x] F4.1 Leads table (filters in the URL, preset views: mine / unassigned / SLA missed / follow-up today, bulk assign, CSV) + Kanban per pipeline (dnd-kit, optimistic, stale → snap back; lost → reason; SLA chip; phone: column tabs + "Move to…") + manual lead drawer (duplicate → open existing)
+- [x] F4.2 Lead drawer: header with call / WhatsApp (+ outcome prompt), details edit, timeline (incl. auto-reply / SLA / Meta entries), notes & calls, tasks, reassign / merge / reopen
+- [x] F4.3 Notification bell (live), "My tasks", pipeline stage editor, CRM settings (assignment, teams, office hours, SLA, auto-reply text with live SMS length/cost), **integration settings** (Meta Page connect, form mapping, import log + retry, sync; SMS status, test SMS, delivery log)
+- [x] F4.4 Public `/landowners` page + form; website lead forms switched on, end-to-end check
 
 ### B2b + F3b: Site content & construction updates — owner-approved 2026-10-13 (after F4)
 - [ ] Backend: `SiteContent` (home hero text, about text, buying steps — BN/EN, versioned, revalidates `org`/`site` tags) + `ConstructionUpdate` (project, date, stage %, note BN/EN, photos; publish flag)
@@ -191,6 +191,15 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 ---
 
 ## 📝 Session Log (newest first)
+
+### 2026-10-13 (8): F4 — CRM UI (F4.1–F4.4 together)
+- **F4.1 Leads + Kanban:** `/dashboard/leads` (table, filters + preset views in the URL — all / mine / unassigned / response overdue / follow-up today / follow-up overdue, multi-select bulk assign, CSV export for `leads:read_all`, cursor "load more") and `/dashboard/pipeline` (buyer / landowner tabs, `@dnd-kit/core` drag between and within columns with optimistic update; `STALE_VERSION`/`STALE_POSITION` → snap back + reload; lost stage → lost-reason dialog; per-column "show more"; phone: one column at a time via tabs + each card's "Move to…" menu). SLA chip (time left / late, text + tone), source icon, owner, next follow-up on every card/row. Manual lead create drawer (`DUPLICATE_LEAD` → "open that lead").
+- **F4.2 Lead drawer** (`?lead=<id>` in the URL, opens over the table, board, tasks and integrations pages): call / WhatsApp links, stage + owner selects, edit details (buyer interest or land fields), merge (search another lead of the same type), delete; tabs: activity (composer for note / call with outcome + duration / WhatsApp / SMS / email / meeting / site visit; timeline with system entries incl. auto-reply, SLA escalation, Meta import), tasks (add, complete, reopen, done list), details.
+- **F4.3:** notification bell in the header (unread badge, live via the socket `notification` event, mark read / all read, click → lead drawer); `/dashboard/tasks` (mine / all, overdue / today / upcoming, counts); `/dashboard/crm-settings` (`pipeline:manage`: stage editor per pipeline with order / kind / colour / Bangla name, assignment mode + project pools, SLA + office hours + weekend, auto-reply BN/EN with live SMS length / segments / cost preview); `/dashboard/integrations` (Meta Page connect / replace token / disconnect, form → pipeline + project mapping, import log with retry, sync now; SMS status, this month's usage, test SMS, delivery log). Nav: My tasks, CRM settings, Integrations; F4 badges removed.
+- **F4.4:** public `/landowners` page (hero, form, four-step process) + `LandownerForm` (`POST /public/leads`, type `landowner`, land fields, same honeypot / min-fill time / quiet retries as the buyer form); header, footer and sitemap links. `.env.example` → `NEXT_PUBLIC_LEADS_ENABLED=true`.
+- **Shared:** `lib/crm/` (queries, constants, URL state, error mapping), `components/ui/Menu.js`, `Dialog.js`, `lib/hooks/useMediaQuery.js`, `useStaffEvent()` in `lib/socket.js`; ~800 new message keys in `bn.json` / `en.json` (Bangla digits via `Intl.NumberFormat`).
+- **Checks:** ESLint clean, `next build` OK; Playwright smoke against a mock API (BN + EN, 1440 px + 390 px): all CRM pages, drawer, bell, desktop drag, phone tabs, landowner page — no console / page errors, no horizontal overflow (fixed one on Integrations at 390 px).
+- **Owner end-to-end check:** create a lead manually → drag across the board → lost reason → reopen; website enquiry + `/landowners` form → lead appears, auto-reply in the SMS log (driver `log`); task with a due time 2 min ahead → bell; CRM settings save (try a too-long auto-reply → error on the field); Integrations → test SMS.
 
 ### 2026-10-13 (7): B3.1 test fixes + B3.2 — SMS, auto-reply, SLA escalation, Meta Lead Ads
 - **B3.1 fixes (owner's `npm test`):** two leads tests used a one-letter name (schema needs ≥ 2) → fixed in the test; `rankBetween()` now refuses out-of-order neighbours itself (`fractional-indexing` ≥ 3.3 silently swaps them); `LeadSettings` had a duplicate `orgId` index (the unique one was never applied) → one unique index via `path('orgId').index({ unique: true })` — **run `npm run seed -- --sync-indexes`**.
