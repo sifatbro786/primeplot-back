@@ -2,7 +2,7 @@
   "name": "primeplot-back",
   "version": "0.1.0",
   "private": true,
-  "description": "PrimePlot — Real Estate Management & CRM API",
+  "description": "PrimePlot \u2014 Real Estate Management & CRM API",
   "type": "module",
   "main": "server.js",
   "engines": {
@@ -20,6 +20,7 @@
     "dev": "node --watch server.js",
     "start": "node server.js",
     "seed": "node scripts/seed.js",
+    "seed:demo": "node scripts/seed-demo.js",
     "test": "vitest run",
     "test:unit": "vitest run tests/unit",
     "test:watch": "vitest",

@@ -9,9 +9,9 @@
 
 | | |
 |---|---|
-| **Current phase** | F2: Public site — **step 1 code complete** (projects listing, project page, plan viewer, unit page + calculator, SEO, revalidation). Next: F2 step 2 (home page with hero video, about/contact, lead form UI with submit disabled until B3) |
-| **Last completed** | F2.1 public catalogue pages + `/api/revalidate` + sitemap/robots; backend `/org/public` branding fields (2026-10-13) |
-| **Next step** | Owner: backend `npm test`; frontend `npm install` (new: embla-carousel-react, maplibre-gl), add the new env keys, `npm run dev`, publish a project and check /bn/projects → then F2 step 2 |
+| **Current phase** | F2: Public site — **code complete** (step 1 catalogue + step 2 home/about/contact). Lead submit waits for B3. Next: F2b public-site extras, then B3 Leads & CRM |
+| **Last completed** | F2.2 home (hero video, search, real stats, featured, areas, how-it-works, enquiry form UI), about, contact, GSAP reveal; backend `npm run seed:demo` (2026-10-13) |
+| **Next step** | Owner: backend `npm run seed:demo`, frontend `npm install` (new: gsap) and delete the old `app/[locale]/page.js` if it is still there, check the site → then B3 |
 | **Blocker** | None. D1/D3/D4 still open (not blocking F2/F3) |
 
 ---
@@ -27,6 +27,7 @@
 
 ## ✅ Resolved decisions
 - 2026-10-11: single-tenant + `orgId`; apartment + plot; no Redis
+- 2026-10-13: **Public-site extras accepted** (all 8): privacy/terms, WhatsApp button, analytics + consent, OG images, unit comparison → F2b; landowner/JV leads → B3 (+ page in F4); editable site content + construction updates → B2b/F3b. Owner feedback: public pages read too white — colour pass before F2b
 - 2026-10-13: **F2 scope** — owner shared 3 reference sites for pattern only (never copied); hero video = Pexels stock for now; lead form = (খ) UI built, submit disabled until B3; production domain = `.env` placeholder (`NEXT_PUBLIC_SITE_URL`); calculator defaults 30 % / 36 months / no bank loan; About text drafted by Claude, no invented stats or testimonials
 - 2026-10-12: **Area units** — plots/land take **katha or decimal (শতাংশ)** as entered (deed figure kept as the source of truth) and the backend stores both (+ sq ft, sq m), with exact auto-conversion (1 katha = 720 sft, 1 decimal = 435.6 sft). Apartments: **sq ft primary**, sq m derived and stored so views can show both.
 - 2026-10-12: **D5 accepted** — manual payments (cash/cheque/PDC/bank transfer/pay order) are first-class; the client can upload a bank-transfer slip in the portal and staff verify it (verified slip → normal receipt); SSLCommerz optional; Stripe not in v1 (gateway adapter keeps it addable). Slip storage (private `payment_slip` media) is built in B1; the slip workflow lands in B4/B5.
@@ -86,12 +87,20 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [~] Tests: unit 62 ✔ in sandbox; integration (`inventory.test.js` — hold race, transitions, pricing, public, floor plans; `sockets.test.js`) written — owner runs `npm test`
 
 ### F2: Public site (Frontend)
-- [~] Home, projects listing + filters — listing done (F2.1); home is step 2
+- [x] Home, projects listing + filters (home: hero video + poster, search card, real stats, featured, areas, buying steps, enquiry; F2.2)
   - Owner note (2026-10-12): the home page hero will use a **background video** — poster image, muted autoplay + `playsinline`, `prefers-reduced-motion` / Save-Data fallback to the poster. Owner decision 2026-10-13: a free Pexels stock video for now; the owner will later drop the real file into `public/`
 - [x] Project detail (gallery/Embla + full-screen viewer, MapLibre map, amenities, unit-type table, live availability grid, plans, brochure, contact band)
 - [x] Floor plan & master plan viewer (live status, floor switcher, zoom, accessible unit list)
 - [x] Unit detail, installment calculator (defaults 30 % down / 36 months; bank-loan part built but off — `CALCULATOR.showLoan`)
-- [~] SEO (metadata, canonical + hreflang, JSON-LD, sitemap, robots, indexing switch) and signed `/api/revalidate` done; lead forms are step 2 (owner decision 2026-10-13: form UI now, submit disabled until B3)
+- [x] SEO (metadata, canonical + hreflang, JSON-LD, sitemap, robots, indexing switch), signed `/api/revalidate`, About + Contact pages
+- [~] Lead forms: UI + validation + honeypot + min fill time + retry built; submit off (`NEXT_PUBLIC_LEADS_ENABLED`) until B3 ships `POST /public/leads`
+
+### F2b: Public site extras (Frontend) — owner-approved 2026-10-13, next after the colour pass
+- [ ] Privacy Policy + Terms pages (BN/EN, drafted; linked from footer and every lead form — also needed for Meta Lead Ads)
+- [ ] Floating WhatsApp button (org phone, hidden when no phone, respects the mobile tab area)
+- [ ] Analytics: GA4 + Meta Pixel from env IDs, loaded only after cookie consent (consent banner, remembered choice); lead-submit and "call"/"WhatsApp" click events
+- [ ] Per-project / per-unit OG share images (`opengraph-image.js`, cover + name + from-price, BN/EN)
+- [ ] Unit comparison: pick 2–3 units (any page) → side-by-side table (size, floor, facing, price, payment estimate); kept in the URL
 
 ### F3: Dashboard Inventory (Frontend)
 - [x] Projects list/create/details (cover, location, land katha/decimal, approval, website flags, amenities), buildings/blocks CRUD
@@ -108,12 +117,19 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [ ] Activities, tasks, follow-up reminders
 - [ ] Meta Lead Ads webhook + Graph fetch job + nightly reconcile
 - [ ] SMS adapter (log + BulkSMSBD + SSL Wireless drivers, env-driven), delivery log, auto-reply
+- [ ] `POST /public/leads` for the website form (honeypot + min-fill-time checks, rate limit) — turns on `NEXT_PUBLIC_LEADS_ENABLED`
+- [ ] Landowner / joint-venture leads (owner-approved 2026-10-13): lead type `landowner` with land fields (area, size in katha/decimal, road width, ownership/mutation status, preferred share); own pipeline view; public `/landowners` page + form (frontend in F4)
 
 ### F4: CRM UI (Frontend)
 - [ ] Leads table (filters, saved views)
 - [ ] Kanban (dnd-kit, optimistic)
 - [ ] Lead drawer: timeline, notes/calls, tasks
 - [ ] Integration settings (Meta page connect, SMS), templates
+
+### B2b + F3b: Site content & construction updates — owner-approved 2026-10-13 (after F4)
+- [ ] Backend: `SiteContent` (home hero text, about text, buying steps — BN/EN, versioned, revalidates `org`/`site` tags) + `ConstructionUpdate` (project, date, stage %, note BN/EN, photos; publish flag)
+- [ ] Dashboard: content editor (replaces the texts now in `messages/*.json › site.home/about`), construction updates per project (photo upload, reorder, publish)
+- [ ] Public: "Construction progress" timeline on the project page (latest first, photo gallery, % bar per stage); home/about read the editable content with the JSON texts as fallback
 
 ### B4: Sales & Accounts (Backend)
 - [ ] Booking (unit lock + price snapshot, transaction)
@@ -157,12 +173,29 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 
 1. Clone `primeplot-back` and `primeplot-front` into the same parent folder (`PrimePlot/`).
 2. In each, run `npm install`, then copy `.env.example` to `.env` and fill in the values (Atlas URI, SMTP, secrets; SSLCommerz/SMS keys optional). Node ≥ 24 required.
-3. Backend: `npm run dev`. Frontend: `npm run dev`.
+3. Backend: `npm run seed` (first time), optional `npm run seed:demo` (sample projects), then `npm run dev`. Frontend: `npm run dev`.
 4. Tell Claude: "Read docs/PROGRESS.md and ARCHITECTURE.md in primeplot-back and continue the PrimePlot project." The same docs are also saved in the claude.ai Project.
 
 ---
 
 ## 📝 Session Log (newest first)
+
+### 2026-10-13 (3): roadmap additions + public-site colour pass
+- **Roadmap:** owner accepted all 8 public-site extras → new **F2b** (privacy/terms, WhatsApp button, GA4 + Meta Pixel with consent, OG images, unit comparison), **B3** (+ `POST /public/leads`, landowner/joint-venture leads; `/landowners` page in F4), new **B2b + F3b** (editable site content, construction updates with public timeline).
+- **Colour pass** (owner: "too white"): new tokens `paper` #F2EDE3, `sage-tint` #E3E6D8, `sage-line` #C9CDB8, `primary-deep` #23271F; utilities `grain` (paper texture), `band-dark`, `stamp`. Public pages now alternate warm paper · sage bands · dark olive bands: header/page on paper; listing header sage with the filter bar overlapping it; project page facts band, gallery and amenities dark, availability sage, contact band sage; home stats + buying steps dark, areas sage, a "Live stock" stamp on the search card; unit price card dark; plan header sage; about principles dark; contact header sage. Inside `.site` the accent and muted-text tokens step one shade darker so small text keeps AA (≥ 4.5) on paper/sage. Dashboard unchanged.
+- Verified: build, ESLint, all 43 Playwright checks, no overflow at 390 px.
+
+### 2026-10-13 (2): F2 step 2 — home, about, contact + demo seed
+- **Backend:** `scripts/seed-demo.js` (`npm run seed:demo`, `-- --reset` to recreate; refuses `NODE_ENV=production`). Through the real services: 4 published projects — Lake View Residency (2 buildings, 4 types, rate card with floor rise/facing/corner/parking/charges, held/booked/blocked units, typical floor plan for floors 1–10, site plan with building hotspots), Uttara Green Court (ready, mostly booked), Purbachal Shapla City (plots on 3 roads, katha deeds, road-width tiers, corner %, layout plan with a hotspot per plot), Dhanmondi Lakeside (upcoming, no units, prices hidden). Plan drawings are rendered with sharp and stored through the media pipeline. Not run in the sandbox (no MongoDB).
+- **Frontend:**
+  - Home `/` (moved into the `(site)` group; the Phase 0 page is gone): hero with background video (poster first, video only after paint, never with reduced motion / Save-Data / 2G, pause button), "find a home" GET search card, real stats band, featured row + cards, areas with live counts, four buying steps, enquiry form. Video = Pexels clip 7578541 (HD, UHD fallback); own file later via `NEXT_PUBLIC_HERO_VIDEO` / `NEXT_PUBLIC_HERO_POSTER`.
+  - `/about` (drafted copy in `messages/*.json › site.about`, licences from company settings, real stats), `/contact` (phone, WhatsApp, email, office → Google Maps, enquiry form).
+  - `LeadForm`: react-hook-form + zod (BD mobile), honeypot, 2.5 s minimum fill, quiet retry on network/5xx, values kept on failure; submit disabled with a call/WhatsApp prompt while `NEXT_PUBLIC_LEADS_ENABLED` is not `true`.
+  - `Reveal` (GSAP ScrollTrigger, once, off with reduced motion, content visible without JS). Nav/footer: About + Contact. Page titles now "<page> · <company name>". Sitemap adds /about, /contact.
+  - **Build no longer needs the API:** catalogue/branding reads postpone to request time during `next build` (`NEXT_PHASE`), request data is awaited before any fetch. Verified: `next build` passes with the API down.
+- New dependency: `gsap` 3.15. New env (optional): `NEXT_PUBLIC_LEADS_ENABLED`, `NEXT_PUBLIC_HERO_VIDEO`, `NEXT_PUBLIC_HERO_POSTER`.
+- **Verified in sandbox:** build (API down and up), ESLint, 14 new Playwright checks (title, video sources + pause, stats, hero search → filtered listing, disabled form + call link, area links, About active nav + licence, contact cards, reduced motion → no video, sitemap) + the 29 F2.1 checks again, no dev-overlay issues, no overflow at 390 px.
+- **Not verified:** the Pexels HD file URL (UHD URL confirmed from the Pexels page; the browser falls back to it), real fonts/photos, the demo seed against MongoDB.
 
 ### 2026-10-13: F2 step 1 — public catalogue
 - **Fixed first:** the F3.2 price-matrix test read units without `orgId` (tenant guard) → `inventory.test.js` lines 313/336 now filter by `orgId`.

@@ -355,6 +355,11 @@ Published projects only. Blocked/cancelled units are never listed; hold details 
 | `GET /public/units/:id` | `PublicUnit` + `layout: Media` + `project: { id, slug, name, nameBn, kind }` |
 | `GET /public/floorplans/:id?floor=` | Resolved plan; a hidden unit's hotspot has `unitId: null` and `target.unit = { status: "unavailable" }` |
 
+### Website leads — planned for B3 (frontend form already built, submit switched off)
+`POST /public/leads` (no auth, rate-limited) — the website form sends:
+`{ name, phone, email?, projectSlug?, message?, source: "website", page, hp, elapsedMs }`
+(`hp` = honeypot, must be empty; `elapsedMs` < 2500 → treat as bot). Expected: `201` (or a silent `201` for bots), `422 VALIDATION_ERROR`, `400 INVALID_PHONE`, `429`. Final shape is fixed in B3.
+
 ### Real-time (Socket.IO)
 - Connect **directly to the API host** (not through the Next.js rewrite): `io(NEXT_PUBLIC_SOCKET_URL, { auth: { token } })`, dev `http://localhost:5030`.
 - `token` (staff only): `POST /auth/socket-token` 🔒 → `{ token, expiresIn: 60 }`. Use it right away; get a fresh one for every (re)connect. Public visitors connect without a token.
