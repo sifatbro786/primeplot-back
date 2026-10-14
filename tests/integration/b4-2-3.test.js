@@ -549,3 +549,33 @@ describe('documents', () => {
     expect(st.body.data).toMatchObject({ type: 'statement', status: 'valid' });
   });
 });
+
+describe('project code guard', () => {
+  it('code can change until the first number is issued, then 409 PROJECT_CODE_LOCKED', async () => {
+    const before = (await A.get(`/api/v1/projects/${project.id}`)).body.data;
+    expect(before.codeLocked).toBe(false);
+    const renamed = await A.patch(`/api/v1/projects/${project.id}`).send({
+      version: before.version,
+      code: 'LVX',
+    });
+    expect(renamed.status).toBe(200);
+    expect(renamed.body.data.code).toBe('LVX');
+
+    expect((await book(E)).status).toBe(201);
+    const locked = (await A.get(`/api/v1/projects/${project.id}`)).body.data;
+    expect(locked.codeLocked).toBe(true);
+    const r = await A.patch(`/api/v1/projects/${project.id}`).send({
+      version: locked.version,
+      code: 'LVR',
+    });
+    expect(r.status).toBe(409);
+    expect(r.body.error.code).toBe('PROJECT_CODE_LOCKED');
+    // Other fields still save; sending the same code is not a change.
+    const ok = await A.patch(`/api/v1/projects/${project.id}`).send({
+      version: locked.version,
+      code: 'LVX',
+      salesPolicy: { transferFee: 0 },
+    });
+    expect(ok.status).toBe(200);
+  });
+});

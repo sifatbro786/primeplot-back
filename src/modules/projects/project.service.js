@@ -13,6 +13,8 @@ import { assertPublicMedia, publicMediaMap } from '#modules/media/media.service.
 import * as units from '#modules/units/unit.service.js';
 import * as floorplans from '#modules/floorplans/floorplan.service.js';
 import { parseSeo, withMedia } from '#modules/site/site.schema.js';
+// Read-only check of the number counters (no service call: accounts → projects is the import direction).
+import { Counter } from '#modules/accounts/counter.model.js';
 import { Project } from './project.model.js';
 import { Block } from './block.model.js';
 
@@ -291,8 +293,10 @@ export async function getProjectDetail(orgId, id) {
     ]),
     listBlocksOf(orgId, p._id),
   ]);
+  const codeLocked = Boolean(p.code) && (await codeIssued(orgId, p._id));
   return {
     ...toProject(p, { media, summary: summaries.get(String(p._id)) ?? null }),
+    codeLocked, // B4: numbers already issued with this code (PATCH code → 409 PROJECT_CODE_LOCKED)
     blocks: blocks.map(toBlock),
   };
 }
@@ -355,6 +359,9 @@ export async function updateProject({ orgId, id, patch, ctx }) {
   const before = doc.toObject();
   await checkMedia(orgId, patch);
   const { version: _v, ...input } = patch;
+  if (input.code !== undefined && doc.code && input.code !== doc.code) {
+    await assertCodeChangeable(orgId, doc._id);
+  }
   applyFields(doc, input);
   await doc.save();
 
@@ -364,6 +371,25 @@ export async function updateProject({ orgId, id, patch, ctx }) {
     await revalidateProject(orgId, doc, { alsoSlug: before.slug });
   }
   return getProjectDetail(orgId, doc._id);
+}
+
+/**
+ * The project code is printed in every booking, receipt and refund number. Once any of those
+ * numbers was issued it is frozen — a new code would start a second series for the same project
+ * and leave printed documents pointing at a code that no longer exists.
+ */
+async function codeIssued(orgId, projectId) {
+  const key = new RegExp(`^(booking|receipt|refund):${String(projectId)}(:|$)`);
+  return Boolean(await Counter.exists({ orgId, key, seq: { $gt: 0 } }));
+}
+
+export async function assertCodeChangeable(orgId, projectId) {
+  if (await codeIssued(orgId, projectId)) {
+    throw new ConflictError(
+      'Booking or receipt numbers were already issued with this code — it can no longer change',
+      { code: 'PROJECT_CODE_LOCKED' },
+    );
+  }
 }
 
 /** Replace the rate card, then re-price every unsold unit of the project. */
