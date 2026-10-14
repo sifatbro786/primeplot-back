@@ -268,6 +268,14 @@ primeplot-front/
 └─ proxy.js
 ```
 
+### 7.0 Website content, SEO & preview *(B2b + F3b, owner-approved 2026-10-14)*
+
+- **Content model:** fixed sections per page (`SitePage`, backend `src/modules/site/`). Each key has a typed zod schema; the dashboard can edit, show/hide and reorder sections, never invent new layouts. Text is plain: `{company}` placeholder, `*emphasis*`, blank-line paragraphs — rendered as React text only, never HTML.
+- **Draft → publish:** the dashboard edits `draft`; publish copies it to `published` and keeps the last 20 versions (`SitePageRevision`). Never-published pages serve the built-in defaults (`site.defaults.js`). People, quotes, numbers and awards start empty and hidden — the site never shows invented content.
+- **Caching:** site reads are `use cache` + tag `site`; publish and SEO-setting changes queue the signed revalidation webhook with that tag.
+- **Preview:** `/api/preview` checks the editor's session (`site:manage`) and turns on Next Draft Mode. In Draft Mode the cached reader fetches the draft server-to-server, signed with `REVALIDATE_SECRET` (`GET /public/site/pages/:key?preview=1`). The browser never holds that credential; other visitors keep the cached page.
+- **SEO:** precedence page/project SEO → built-in text → site-wide defaults. `NEXT_PUBLIC_ALLOW_INDEXING` stays the master switch; the dashboard can only add `noindex` (per page or site-wide). No `meta keywords` (ignored by Google) — a dashboard-only focus keyword drives on-page checks. Project share images stay the generated `opengraph-image` card.
+
 ### 7.1 Placeholder images (before real uploads)
 
 - `lib/placeholders.js` holds a curated list of image URLs grouped by category: `apartment-exterior`, `interior`, `plot-land`, `city`, `amenity`, `hero`, `avatar`. Sources are Unsplash (`images.unsplash.com`) and Pexels (`images.pexels.com`).

@@ -6,6 +6,10 @@ import { offsetQuery } from '#shared/utils/pagination.js';
 import { zSlug } from '#modules/projects/project.validation.js';
 import { PROJECT_KINDS, PROJECT_STAGES } from '#modules/projects/project.model.js';
 import * as catalog from './public.service.js';
+import * as site from '#modules/site/site.service.js';
+import { verifySiteSignature } from '#integrations/revalidate/index.js';
+import { NotFoundError } from '#shared/errors/AppError.js';
+import * as construction from '#modules/construction/construction.service.js';
 
 /**
  * /api/v1/public — website catalogue, no auth (B2). GET only.
@@ -34,6 +38,59 @@ router.get(
   async (req, res) => {
     const { items, meta } = await catalog.listPublicProjects(req.orgId, req.valid.query);
     ok(res, items, { meta });
+  },
+);
+
+// Website content & SEO (B2b) — cached by the site under the `site` tag.
+router.get('/site', async (req, res) => {
+  ok(res, await site.getPublicSite(req.orgId));
+});
+
+router.get(
+  '/site/pages/:key',
+  validate({
+    params: { key: z.string().trim().min(1).max(40) },
+    query: { preview: z.literal('1').optional() },
+  }),
+  async (req, res) => {
+    const { key } = req.valid.params;
+    if (!req.valid.query.preview) return ok(res, await site.getPublicPage(req.orgId, key));
+    // Draft preview for the website's preview mode — signed by the Next.js server, never a browser.
+    const signed = verifySiteSignature(
+      `preview:${key}`,
+      req.get('x-primeplot-timestamp'),
+      req.get('x-primeplot-signature'),
+    );
+    if (!signed) throw new NotFoundError('Not found');
+    res.setHeader('Cache-Control', 'no-store');
+    ok(res, await site.getPreviewPage(req.orgId, key));
+  },
+);
+
+router.get(
+  '/projects/:slug/updates',
+  validate({
+    params: { slug: zSlug },
+    query: {
+      cursor: z.string().max(200).optional(),
+      limit: z.coerce.number().int().min(1).max(20).default(10),
+    },
+  }),
+  async (req, res) => {
+    const { items, meta } = await construction.listPublicUpdates(
+      req.orgId,
+      req.valid.params.slug,
+      req.valid.query,
+    );
+    ok(res, items, { meta });
+  },
+);
+
+router.get(
+  '/construction/latest',
+  validate({ query: { limit: z.coerce.number().int().min(1).max(6).default(3) } }),
+  async (req, res) => {
+    ok(res, await construction.latestPublic(req.orgId, req.valid.query));
   },
 );
 

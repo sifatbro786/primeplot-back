@@ -12,6 +12,7 @@ import { audit } from '#modules/audit/audit.service.js';
 import { assertPublicMedia, publicMediaMap } from '#modules/media/media.service.js';
 import * as units from '#modules/units/unit.service.js';
 import * as floorplans from '#modules/floorplans/floorplan.service.js';
+import { parseSeo, withMedia } from '#modules/site/site.schema.js';
 import { Project } from './project.model.js';
 import { Block } from './block.model.js';
 
@@ -90,6 +91,7 @@ export function toProject(p, { media, summary } = {}) {
     publicPricing: p.publicPricing,
     pricing: p.pricing ?? {},
     pricingUpdatedAt: p.pricingUpdatedAt ?? null,
+    seo: withMedia(parseSeo(p.seo), media ?? new Map()),
     ...(summary !== undefined && { inventory: summary }),
     version: p.__v ?? 0,
     createdAt: p.createdAt,
@@ -200,6 +202,10 @@ function applyFields(doc, input, kind) {
   ];
   for (const k of simple) if (input[k] !== undefined) doc.set(k, input[k]);
 
+  if (input.seo !== undefined) {
+    doc.seo = input.seo;
+    doc.markModified('seo');
+  }
   if (input.published !== undefined && input.published !== doc.published) {
     doc.published = input.published;
     if (input.published) doc.publishedAt = new Date();
@@ -224,7 +230,11 @@ function applyFields(doc, input, kind) {
 }
 
 async function checkMedia(orgId, input) {
-  const images = [input.coverMediaId, ...(input.galleryMediaIds ?? [])].filter(Boolean);
+  const images = [
+    input.coverMediaId,
+    ...(input.galleryMediaIds ?? []),
+    input.seo?.ogImageMediaId,
+  ].filter(Boolean);
   if (images.length) await assertPublicMedia(orgId, images, { kind: 'image' });
   if (input.brochureMediaId) await assertPublicMedia(orgId, [input.brochureMediaId]);
 }
@@ -264,7 +274,12 @@ export async function getProjectDetail(orgId, id) {
   const p = await getProject(orgId, id);
   const [summaries, media, blocks] = await Promise.all([
     units.summarizeProjects(orgId, [p._id]),
-    publicMediaMap(orgId, [p.coverMediaId, ...(p.galleryMediaIds ?? []), p.brochureMediaId]),
+    publicMediaMap(orgId, [
+      p.coverMediaId,
+      ...(p.galleryMediaIds ?? []),
+      p.brochureMediaId,
+      p.seo?.ogImageMediaId,
+    ]),
     listBlocksOf(orgId, p._id),
   ]);
   return {
@@ -318,6 +333,7 @@ const AUDITED = [
   'galleryMediaIds',
   'brochureMediaId',
   'publicPricing',
+  'seo',
 ];
 
 export async function updateProject({ orgId, id, patch, ctx }) {

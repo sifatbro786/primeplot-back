@@ -9,9 +9,9 @@
 
 | | |
 |---|---|
-| **Current phase** | B3 + F4: Leads & CRM — **backend (B3.1 + B3.2) and CRM UI (F4.1–F4.4) code complete**. Next: owner end-to-end check, then **B2b + F3b** (site content + construction updates) |
-| **Last completed** | F4: leads table + Kanban, lead drawer, notification bell, My tasks, CRM settings, integration settings, public `/landowners` page; website lead forms switched on (2026-10-13) |
-| **Next step** | Owner: backend `npm run seed -- --sync-indexes` + `npm test` (if not done after B3.2); frontend `npm install` (adds `@dnd-kit/core`), set `NEXT_PUBLIC_LEADS_ENABLED=true` in `.env`; `npm run seed:crm` (demo CRM data, prints a test guide), then the F4 end-to-end check (see session log 9). Then **B2b + F3b** |
+| **Current phase** | **B2b + F3b code complete** (site content CMS, SEO, construction updates). B3 + F4 code complete (owner testing with `seed:crm`) |
+| **Last completed** | B2b + F3b: Website editor (Home/About sections, draft → preview → publish, 20 versions), page/project/site-wide SEO with search preview and focus-keyword checks, construction updates with photos (dashboard + project page + home) — 2026-10-14 |
+| **Next step** | Owner: backend `npm run seed -- --sync-indexes`, `npm test` (new `site.test.js`), `npm run seed:demo -- --reset` (adds construction updates); same `REVALIDATE_SECRET` in both `.env` files (preview + revalidation); then fill Website › Home/About with real content and publish. Then **B4** (bookings & accounts) after D1 |
 | **Blocker** | None. D1/D3/D4 still open (not blocking F2/F3) |
 
 ---
@@ -26,6 +26,7 @@
 | D4 | v1/v2 split | See ARCHITECTURE §4 (proposed) | Before B2 |
 
 ## ✅ Resolved decisions
+- 2026-10-14: **B2b + F3b scope** (owner accepted) — dashboard-managed SEO (site-wide + per page + per project, SERP preview); **focus keyword + on-page check** instead of `meta keywords`; page content as **fixed sections** (edit / show-hide / reorder, no free page builder); **draft → preview → publish**, last 20 versions kept; all proposed sections — Home: why us, track record, construction progress, testimonials, landowner JV band, approvals & partner banks, video tour, FAQ; About: story + milestones, mission/vision/values, chairman/MD message, leadership team, construction quality, completed projects, memberships & awards, CSR. People/testimonial/award sections start empty (hidden) — never invented content
 - 2026-10-13: **B3.2 defaults** (owner accepted) — auto-reply only for new website/Meta leads (not manual, not repeat enquiries), max 1 per phone per 24 h; SLA miss → one in-app notification to every manager (no SMS to managers); BN 70/67, EN 160/153 segments with a cost preview; Meta page token encrypted, nightly 48-hour reconcile. **Order:** B3.2 first, then the full F4. **F4 decisions:** saved views = preset views + filters in the URL (no backend); phone Kanban = one column at a time (tabs) + "Move to…" menu, drag on desktop
 - 2026-10-13: **B3 scope** (owner) — new leads **round-robin** among active sales executives (per-project teams optional; `manual` mode = unassigned queue); first-response **SLA 30 office minutes** (09:00–20:00 Dhaka, Friday off, editable) with manager escalation; customer **auto-reply SMS on** (editable BN/EN text, can be switched off); B3 split into **B3.1** (core CRM + website form) and **B3.2** (SMS, auto-reply, SLA escalation, Meta Lead Ads)
 - 2026-10-13: **Tracking IDs from the dashboard** (owner) — GA4 Measurement ID + Meta Pixel ID live on the Organization (`analytics`), edited in Company settings, not `.env`. Privacy/Terms use the settings' **legal name** (falls back to the company name); both pages linked from the footer
@@ -138,10 +139,11 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] F4.3 Notification bell (live), "My tasks", pipeline stage editor, CRM settings (assignment, teams, office hours, SLA, auto-reply text with live SMS length/cost), **integration settings** (Meta Page connect, form mapping, import log + retry, sync; SMS status, test SMS, delivery log)
 - [x] F4.4 Public `/landowners` page + form; website lead forms switched on, end-to-end check
 
-### B2b + F3b: Site content & construction updates — owner-approved 2026-10-13 (after F4)
-- [ ] Backend: `SiteContent` (home hero text, about text, buying steps — BN/EN, versioned, revalidates `org`/`site` tags) + `ConstructionUpdate` (project, date, stage %, note BN/EN, photos; publish flag)
-- [ ] Dashboard: content editor (replaces the texts now in `messages/*.json › site.home/about`), construction updates per project (photo upload, reorder, publish)
-- [ ] Public: "Construction progress" timeline on the project page (latest first, photo gallery, % bar per stage); home/about read the editable content with the JSON texts as fallback
+### B2b + F3b: Site content, SEO & construction updates — scope locked 2026-10-14
+- [x] B2b.1 Backend: `SitePage` (fixed sections per page, draft / publish / 20 revisions / restore, defaults), `SiteSettings` (site-wide SEO), `Project.seo`, public `/public/site*`, `site:manage` permission, `site` revalidation tag (contract: API.md › B2b)
+- [x] B2b.2 Backend: `ConstructionUpdate` (date, % , milestone, photos, publish), public updates + latest-per-project, project `construction` summary
+- [x] F3b.1 Dashboard: page editor (sections, reorder, show/hide, reset to default, preview, publish, history), SEO editor (SERP preview, length + focus-keyword checks), site-wide SEO settings, project SEO tab, construction updates per project
+- [x] F3b.2 Public: Home + About rebuilt from sections (new sections above), metadata + verification + JSON-LD (Organization sameAs, FAQPage) from the SEO settings, preview mode, construction timeline on the project page
 
 ### B4: Sales & Accounts (Backend)
 - [ ] Booking (unit lock + price snapshot, transaction)
@@ -191,6 +193,33 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 ---
 
 ## 📝 Session Log (newest first)
+
+### 2026-10-14 (12): Fix — `seed:demo --reset` failed on floor plans
+- **Owner report:** `npm run seed:demo -- --reset` printed repeated "Could not queue revalidation … Unknown job type: frontend.revalidate" warnings, then stopped with a ZodError (`mediaId` undefined) at the first floor plan.
+- **Cause 1:** `uploadDrawing()` returned `m.id`, but `createMedia()` returns a plain object (`toObject()`), which has `_id` and no `id` virtual. → returns `String(m._id)`.
+- **Cause 2:** scripts never imported `#jobs/index.js`, so the `frontend.revalidate` job type was not registered. → `scripts/seed-demo.js` imports it; website revalidation jobs are now queued and the API process runs them.
+- **Partial data:** the failed run left a half-built "Lake View Residency"; `--reset` matches by slug and cleans it on the next run.
+
+### 2026-10-14 (11): Fix — /landowners metadata blocked prefetch in dev
+- **Owner report:** `next dev` printed "Route /[locale]/landowners: Next.js encountered URL data in generateMetadata()" (+ two browser messages).
+- **Cause:** page SEO was read with the short `CATALOG` cache profile (stale 60 s). Next treats short-lived caches as request-time while prerendering; `/landowners` is otherwise fully static, so its metadata would have blocked the static shell. Reproduced with client-side navigation in `next dev`.
+- **Fix** (`lib/public/api.js`): site page reads use the long `BRANDING` profile (content changes only on publish and is pushed by the `site` tag anyway); metadata reads the published page through a separate `getPublishedSitePage()` that never touches Draft Mode. Re-checked: 0 errors across Landowners/About/Contact/Projects navigations; build OK.
+- **Not ours:** "React instrumentation encountered an error" comes from the React DevTools browser extension; the LCP `loading="eager"` note is a dev hint about a below-the-fold placeholder photo.
+
+### 2026-10-14 (10): B2b + F3b — website content, SEO, construction updates
+- **Scope locked with the owner:** fixed sections (no free page builder), focus keyword + checks instead of `meta keywords`, draft → preview → publish with 20 versions, all proposed Home/About sections (see Resolved decisions).
+- **Backend** (`src/modules/site/`, `src/modules/construction/`; contract API.md › B2b):
+  - `SitePage` (+ `SitePageRevision`) with 27 section keys over 17 typed schemas, defaults BN/EN, compare-and-set versions, publish / discard / restore, visibility rule (empty → hidden), `SiteSettings` (title template, defaults, Google/Bing verification — accepts the pasted meta tag, social links, indexing switch), `Project.seo`, permission `site:manage` (admin, manager).
+  - `ConstructionUpdate` (date, %, milestone, block, ≤ 20 photos with captions, publish) with staff CRUD, public timeline (cursor), latest-per-project for the home page, `construction` summary on the public project.
+  - Public `/public/site`, `/public/site/pages/:key` (+ signed draft preview), `site` revalidation tag. `seed:demo` adds 3 published updates to the ongoing demo project; `--sync-indexes` covers the new collections.
+  - Two Zod 4 traps found and fixed: `.default({})` returns `{}` without inner defaults (→ `.prefault`), and `.optional()` on a defaulted field still fills it — a PATCH would have blanked an update's title (→ default-free `zTObj` for PATCH bodies; regression tests added).
+- **Frontend:**
+  - Public Home + About rebuilt from sections: why us, track record, construction progress, testimonials, landowner band, approvals/partner logos, click-to-load YouTube tour (youtube-nocookie), FAQ (+ FAQPage JSON-LD); About: story timeline, mission/vision/values, leader message, team, construction standards, completed projects, licences + logos, awards, CSR. Hero frame stays static (LCP); copy streams in.
+  - Metadata from SEO (`lib/public/seo.js`): titles, descriptions, share images, title template, verification tags, noindex, Organization `sameAs`; sitemap uses publish dates and skips noindex pages.
+  - Draft Mode preview (`/api/preview`, banner + exit); revalidation webhook accepts the `site` tag.
+  - Project page: construction timeline with progress bar and photo viewer.
+  - Dashboard: **Website** (nav) → page editor (sections: edit, show/hide, reorder, reset to default; SEO tab with search preview and checks; save draft, preview, publish with note, history/restore, discard), **Site-wide SEO**; project tabs **Construction** and **SEO**. ~300 new BN/EN message keys.
+- **Checks:** backend 140 unit tests; site + construction HTTP flows run on FerretDB (MongoDB wire protocol — real MongoDB was not reachable here; `$cond`/`$first` aggregations are a FerretDB gap, covered by `site.test.js` for the owner). Frontend ESLint + `next build`; Playwright against a mock API that uses the backend's real section schemas: BN/EN desktop + 390 px — editing, signed preview, publish → revalidate → live, verification meta, sameAs, FAQ schema, construction create, project SEO; no console errors or overflow.
 
 ### 2026-10-14 (9): CRM demo data — `npm run seed:crm`
 - **Owner request:** typing test data by hand takes too long → seed it.

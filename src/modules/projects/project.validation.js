@@ -3,6 +3,7 @@ import { zid } from '#shared/middleware/validate.js';
 import { hasMaxDecimals, LAND_UNITS } from '#shared/utils/area.js';
 import { FACINGS } from '#modules/units/pricing.js';
 import { APPROVAL_AUTHORITIES, PROJECT_KINDS, PROJECT_STAGES } from './project.model.js';
+import { zSeoObject } from '#modules/site/site.schema.js';
 import { BLOCK_KINDS } from './block.model.js';
 
 /** Shared request schemas for B2 (projects, blocks, units, floor plans). Strict everywhere. */
@@ -140,6 +141,7 @@ const projectFields = {
     .refine((a) => new Set(a).size === a.length, 'Duplicate image'),
   brochureMediaId: zid.nullable(),
   publicPricing: z.boolean(),
+  seo: zSeoObject.nullable(), // B2b — null = automatic
 };
 
 const optionalAll = (shape) =>

@@ -1,4 +1,4 @@
-import { createHmac } from 'node:crypto';
+import { createHmac, timingSafeEqual } from 'node:crypto';
 import { env } from '#config/env.js';
 import { logger } from '#config/logger.js';
 import { enqueue } from '#jobs/scheduler.js';
@@ -24,6 +24,21 @@ export const projectTags = (slug) => ['projects', `project:${slug}`];
 
 export function signRevalidation(body, timestamp, secret = env.REVALIDATE_SECRET) {
   return `sha256=${createHmac('sha256', secret).update(`${timestamp}.${body}`).digest('hex')}`;
+}
+
+const MAX_SKEW_SEC = 300;
+
+/**
+ * Check a server-to-server request signed by the website with the same shared secret
+ * (used for draft previews: `X-PrimePlot-Timestamp` + `X-PrimePlot-Signature` over
+ * `"<timestamp>.<payload>"`). Constant time; stale timestamps (> 5 min) are refused.
+ */
+export function verifySiteSignature(payload, timestamp, signature, secret = env.REVALIDATE_SECRET) {
+  if (!secret || !/^\d{9,12}$/.test(String(timestamp ?? ''))) return false;
+  if (Math.abs(Math.floor(Date.now() / 1000) - Number(timestamp)) > MAX_SKEW_SEC) return false;
+  const expected = Buffer.from(signRevalidation(payload, timestamp, secret));
+  const given = Buffer.from(String(signature ?? ''));
+  return given.length === expected.length && timingSafeEqual(given, expected);
 }
 
 /** Fire-and-forget from services (never fails the caller). */

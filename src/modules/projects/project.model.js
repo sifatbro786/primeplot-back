@@ -122,6 +122,9 @@ const projectSchema = new mongoose.Schema(
 
     // Website shows prices only when the company wants it ("price on request" otherwise).
     publicPricing: { type: Boolean, default: false },
+    // B2b: { title, description (bilingual), ogImageMediaId, noindex, focusKeyword } — validated
+    // by site.schema.js zSeoObject; null = automatic title/description.
+    seo: { type: mongoose.Schema.Types.Mixed, default: null },
     pricing: { type: pricingSchema, default: () => ({}) },
     pricingUpdatedAt: { type: Date, default: null },
 

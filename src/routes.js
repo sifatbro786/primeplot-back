@@ -13,6 +13,8 @@ import leadRoutes from '#modules/leads/lead.routes.js';
 import publicLeadRoutes from '#modules/leads/publicLead.routes.js';
 import notificationRoutes from '#modules/notifications/notification.routes.js';
 import integrationRoutes from '#modules/integrations/integration.routes.js';
+import siteRoutes from '#modules/site/site.routes.js';
+import { projectUpdatesRouter, updatesRouter } from '#modules/construction/construction.routes.js';
 import metaWebhookRoutes from '#modules/meta/metaWebhook.routes.js';
 import internalRoutes from '#jobs/jobs.routes.js';
 import { limits } from '#shared/middleware/rateLimit.js';
@@ -38,12 +40,15 @@ api.use('/org', orgRoutes);
 api.use('/users', userRoutes);
 api.use('/audit', auditRoutes);
 api.use('/media', mediaRoutes);
+api.use('/projects', projectUpdatesRouter); // /projects/:id/updates (B2b)
 api.use('/projects', projectRoutes);
+api.use('/construction-updates', updatesRouter);
 api.use('/units', unitRoutes);
 api.use('/floorplans', floorPlanRoutes);
 api.use('/leads', leadRoutes);
 api.use('/notifications', notificationRoutes);
 api.use('/integrations', integrationRoutes);
+api.use('/site', siteRoutes);
 api.use('/public/leads', publicLeadRoutes); // website enquiry form — before the cached catalogue
 api.use('/public', publicRoutes); // website catalogue — no auth
 

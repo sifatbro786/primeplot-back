@@ -3,6 +3,8 @@ import { publicMediaMap } from '#modules/media/media.service.js';
 import * as projects from '#modules/projects/project.service.js';
 import * as units from '#modules/units/unit.service.js';
 import * as floorplans from '#modules/floorplans/floorplan.service.js';
+import { publicSeo } from '#modules/site/site.schema.js';
+import { summariesFor } from '#modules/construction/construction.service.js';
 
 /**
  * Website catalogue (B2): read-only, published projects only, blocked/cancelled units never
@@ -54,6 +56,7 @@ function toPublicProject(p, { media, summary, full = false }) {
     gallery: s.media?.gallery ?? [],
     brochure: s.media?.brochure ?? null,
     publicPricing: p.publicPricing,
+    seo: publicSeo(p.seo, media),
     updatedAt: s.updatedAt,
   };
 }
@@ -79,11 +82,17 @@ export async function listPublicProjects(orgId, query) {
 
 export async function getPublicProject(orgId, slug) {
   const p = await projects.getPublishedProjectBySlug(orgId, slug);
-  const [summaries, media, blocks, plans] = await Promise.all([
+  const [summaries, media, blocks, plans, progress] = await Promise.all([
     units.summarizeProjects(orgId, [p._id]),
-    publicMediaMap(orgId, [p.coverMediaId, ...(p.galleryMediaIds ?? []), p.brochureMediaId]),
+    publicMediaMap(orgId, [
+      p.coverMediaId,
+      ...(p.galleryMediaIds ?? []),
+      p.brochureMediaId,
+      p.seo?.ogImageMediaId,
+    ]),
     projects.listBlocksOf(orgId, p._id),
     floorplans.listFloorPlans(orgId, p._id, { publicOnly: true }),
+    summariesFor(orgId, [p._id]),
   ]);
   return {
     ...toPublicProject(p, { media, summary: summaries.get(String(p._id)), full: true }),
@@ -92,6 +101,7 @@ export async function getPublicProject(orgId, slug) {
       return rest;
     }),
     floorPlans: plans.map(({ version: _v, hotspotCount: _h, ...rest }) => rest),
+    construction: progress.get(String(p._id)) ?? null,
   };
 }
 

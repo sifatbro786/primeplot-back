@@ -557,3 +557,126 @@ Import error codes: `NO_PHONE` (permanent — the form has no usable phone quest
 - Job `meta.reconcile`: once a night (02:00–06:00 Dhaka; any time if the last run is > 30 h old) it re-reads the last 48 h of every form and imports what is missing (or failed for a fixable reason).
 
 Audit actions added: `integration.meta.connect`, `integration.meta.disconnect`, `integration.meta.forms`, `integration.meta.retry`, `integration.sms.test`.
+
+---
+
+## B2b — Site content, SEO & construction updates
+
+Owner decisions 2026-10-14: **fixed sections** per page (edit, show/hide, reorder — no free page builder); **focus keyword + on-page check** instead of `meta keywords` (Google ignores them); **draft → preview → publish** with the last 20 published versions kept; all proposed Home/About sections.
+
+New permission **`site:manage`** (admin, sales manager): page content, page SEO, site-wide SEO. Construction updates use `projects:write`.
+
+New error codes:
+
+| Code | HTTP | When |
+|---|---|---|
+| `UNKNOWN_PAGE` | 404 | Page key not in the list below |
+| `UNKNOWN_SECTION` / `DUPLICATE_SECTION` | 400 | A section key that does not belong to the page, or the same key twice (`details[].path`) |
+| `NO_CHANGES` | 409 | Publish with a draft identical to the live version |
+| `REVISION_NOT_FOUND` | 404 | Restore of a version that is no longer kept |
+| `INVALID_MEDIA` | 422 | Image id missing, private or not an image (same as B2) |
+
+### Conventions
+- **Bilingual text** `T = { "en": string, "bn": string }` (either may be `""`). The site shows the visitor's language and falls back to the other one when empty.
+- **Placeholders:** `{company}` → the company name in that language. In titles, `*words*` → emphasis (italic accent). Long text: a blank line starts a new paragraph. No HTML anywhere.
+- **Links** (`href`): a site path starting with `/` (no locale — the site adds it) or an `https://` URL.
+- **Icons:** one of `shield-check, building, hammer, hard-hat, handshake, key, clock, receipt, map-pin, leaf, users, award, ruler, landmark, sparkles, eye, qr-code, home, file-check, phone, wallet, trees, sun, droplets, zap, lock`.
+- **Images** are written as `…MediaId` (a **public** image uploaded via `POST /media`) and read back resolved as `Media` (with URLs) next to the id.
+- A section is shown on the site when it is **enabled and has content** (lists need ≥ 1 item; the leader message needs text). Data-driven sections (featured / completed projects, areas, construction) also hide when there is nothing to show.
+
+### Pages and sections
+Section order = array order (editable). Keys are fixed per page; a key added in a later version is appended with its default content.
+
+| Page key | Sections (key → type) |
+|---|---|
+| `home` | `hero`→hero · `stats`→stats · `featured`→heading · `whyUs`→cards · `trackRecord`→figures · `construction`→heading · `areas`→heading · `howItWorks`→steps · `testimonials`→testimonials · `landownerCta`→cta · `partners`→logos · `video`→video · `faq`→faq · `enquiry`→heading |
+| `about` | `intro`→intro · `stats`→stats · `story`→story · `missionVision`→mission · `principles`→cards · `leaderMessage`→message · `team`→people · `quality`→cards · `completed`→heading · `credentials`→logos · `awards`→awards · `csr`→csr · `cta`→cta |
+| `projects`, `contact`, `landowners`, `compare`, `privacy`, `terms` | none — SEO only |
+
+```jsonc
+// Section data by type (limits: titles ≤ 160, bodies ≤ 600, long text ≤ 5000 per language)
+hero:         { eyebrow: T, title: T, body: T, primary: { label: T, href }, secondary: { label: T, href } }
+stats:        { note: T }                                   // the numbers themselves are live from the catalogue
+heading:      { eyebrow: T, title: T, body: T }
+cards:        { eyebrow: T, title: T, body: T, items: [{ icon, title: T, body: T }] }          // ≤ 8
+figures:      { eyebrow: T, title: T, body: T, items: [{ value: "15+", label: T }] }          // ≤ 6, value ≤ 12 chars
+steps:        { eyebrow: T, title: T, items: [{ title: T, body: T }] }                        // ≤ 6
+testimonials: { eyebrow: T, title: T, items: [{ name: T, role: T, quote: T, photoMediaId }] } // ≤ 12 — real customers only
+cta:          { eyebrow: T, title: T, body: T, label: T, href }
+logos:        { eyebrow: T, title: T, items: [{ name, group: "approval|membership|bank|partner", logoMediaId, url }] } // ≤ 24
+video:        { eyebrow: T, title: T, body: T, youtubeUrl, posterMediaId }                    // youtube.com / youtu.be only
+faq:          { eyebrow: T, title: T, items: [{ q: T, a: T }] }                               // ≤ 20 → FAQPage schema
+intro:        { eyebrow: T, title: T, body: T (long), imageMediaId }
+story:        { eyebrow: T, title: T, body: T (long), milestones: [{ year: "2012", title: T, body: T }] } // ≤ 20
+mission:      { eyebrow: T, title: T, mission: T, vision: T, values: [{ title: T, body: T }] } // ≤ 8
+message:      { eyebrow: T, name: T, designation: T, message: T (long), photoMediaId, signatureMediaId }
+people:       { eyebrow: T, title: T, items: [{ name: T, designation: T, bio: T, photoMediaId }] } // ≤ 24
+awards:       { eyebrow: T, title: T, items: [{ year, title: T, by: T, logoMediaId }] }        // ≤ 20
+csr:          { eyebrow: T, title: T, body: T, items: [{ title: T, body: T, imageMediaId }] }  // ≤ 12
+// On read every *MediaId has a sibling without "Id" holding Media|null, e.g. photoMediaId + photo.
+
+// PageSeo (all optional — empty falls back to the site's automatic title/description)
+{ "title": T, "description": T, "ogImageMediaId": null, "ogImage"?: Media|null, "noindex": false,
+  "focusKeyword": T }   // focusKeyword is dashboard-only, never sent to the site
+// Soft limits shown in the editor: title ≈ 60, description ≈ 160 characters. Hard: title ≤ 120, description ≤ 320.
+
+// SitePage (dashboard)
+{ "key": "home", "version": 4,
+  "draft": { "sections": [{ "key": "hero", "type": "hero", "enabled": true, "data": { … } }], "seo": PageSeo },
+  "hasChanges": true,                          // draft differs from the live version
+  "publishedAt", "publishedByName", "draftUpdatedAt", "draftUpdatedByName",
+  "defaults": { "<sectionKey>": data }         // for "reset this section to the default text"
+}
+
+// SiteSettings (site-wide SEO)
+{ "version", "titleTemplate": T,               // must contain %s; default "%s | {company}"
+  "defaultDescription": T, "defaultOgImageMediaId", "defaultOgImage"?: Media|null,
+  "verification": { "google": "", "bing": "" }, // the content= value of the meta tag
+  "social": { "facebook", "instagram", "youtube", "linkedin", "tiktok", "x" }, // https URLs or null → schema sameAs
+  "indexing": true }                           // false → noindex on every page (staging)
+```
+
+### Content & SEO 🔒 `site:manage`
+| Endpoint | Notes |
+|---|---|
+| `GET /site/pages` | `[{ key, sections (count), hasChanges, publishedAt, publishedByName, draftUpdatedAt, draftUpdatedByName }]` |
+| `GET /site/pages/:key` | `SitePage` (draft + defaults, media resolved). First read creates it from the defaults |
+| `PUT /site/pages/:key/draft` | `{ version, sections: [{ key, enabled, data }], seo }` → `SitePage`. Sending back the loaded data is fine — resolved image objects next to `…MediaId` are ignored. Full replacement of the draft; the site does not change. `409 STALE_VERSION`, `400 UNKNOWN_SECTION / DUPLICATE_SECTION`, `422 VALIDATION_ERROR` (`details[].path` e.g. `sections.3.data.items.0.title.bn`), `422 INVALID_MEDIA` |
+| `GET /site/pages/:key/preview` | The draft in the **public** shape (below) — used by the site's preview mode |
+| `POST /site/pages/:key/publish` | `{ version, note? ≤ 200 }` → `SitePage`. Draft becomes live, a version is kept (last 20), the site is revalidated (`site` tag). `409 NO_CHANGES`. Audited `site.publish` |
+| `POST /site/pages/:key/discard` | `{ version }` → draft = live version (or the defaults if never published) |
+| `GET /site/pages/:key/revisions` | `[{ n, note, publishedAt, publishedByName }]` newest first |
+| `POST /site/pages/:key/revisions/:n/restore` | `{ version }` → `SitePage` with that version as the draft (publish to make it live). `404 REVISION_NOT_FOUND` |
+| `GET /site/settings` · `PATCH /site/settings` | `SiteSettings`; PATCH: any part + `version` → live at once, revalidates `site`. Audited `site.settings_update` |
+
+**Project SEO:** `Project.seo: PageSeo` (create/`PATCH /projects/:id`, same `version` rules). Public project detail returns `seo` without `focusKeyword`.
+
+### Public (no auth)
+| Endpoint | Returns |
+|---|---|
+| `GET /public/site` | `{ settings: SiteSettings (no version), pages: [{ key, publishedAt, noindex }] }` — layout metadata, schema, sitemap |
+| `GET /public/site/pages/:key` | `{ key, publishedAt, sections: [{ key, type, data }], seo: { title, description, ogImage, noindex } }`. Only visible sections; media resolved; a `video` section also gets `data.youtubeId`; never-published pages return the defaults (`publishedAt: null`) |
+
+The site caches both under the **`site`** tag (revalidated on publish / settings change).
+
+**Draft preview (site ↔ API, server to server):** `GET /public/site/pages/:key?preview=1` with `X-PrimePlot-Timestamp` + `X-PrimePlot-Signature: sha256=<hex HMAC-SHA256(REVALIDATE_SECRET, "<timestamp>.preview:<key>")>` returns the **draft** in the public shape (`Cache-Control: no-store`); a missing/stale/wrong signature → `404`. The website calls it only in Next.js Draft Mode, which its `/api/preview` route turns on after checking the editor's session has `site:manage`.
+
+### Construction updates
+```jsonc
+// ConstructionUpdate
+{ "id", "version", "projectId", "blockId": null, "block"?: { "id", "code", "name", "nameBn" },
+  "date": "2026-10-10", "title": T, "body": T, "percent": 45 | null,
+  "milestone": "site_preparation|piling|foundation|basement|structure|roof|brickwork|finishing|handover" | null,
+  "photos": [{ "mediaId", "media": Media, "caption": T }],     // ≤ 20, order = display order
+  "published": false, "publishedAt", "createdByName", "createdAt", "updatedAt" }
+```
+| Endpoint | Permission | Notes |
+|---|---|---|
+| `GET /projects/:id/updates?published=true\|false&cursor&limit≤50` | `projects:read` | Newest `date` first |
+| `POST /projects/:id/updates` | `projects:write` | `{ date (≤ tomorrow), title, body?, percent?, milestone?, blockId?, photos?, published? }` → `201` |
+| `PATCH /construction-updates/:id` | `projects:write` | Any field + `version` |
+| `DELETE /construction-updates/:id` | `projects:write` | Soft delete → `204` |
+| `GET /public/projects/:slug/updates?cursor&limit≤20` | — | Published only, newest first (no version/author) |
+| `GET /public/construction/latest?limit≤6` | — | The latest published update of each published project, newest first, with `project: { slug, name, nameBn, stage, cover }` |
+
+Public project detail adds `construction: { percent, milestone, date, count } | null` (latest published update). Changes revalidate the project's tags and `site`.

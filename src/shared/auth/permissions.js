@@ -35,6 +35,9 @@ export const P = Object.freeze({
   LEADS_ASSIGN: 'leads:assign',
   PIPELINE_MANAGE: 'pipeline:manage',
 
+  // Website content & SEO (B2b)
+  SITE_MANAGE: 'site:manage',
+
   // Sales & accounts (B4)
   BOOKINGS_READ: 'bookings:read',
   BOOKINGS_CREATE: 'bookings:create',
@@ -81,6 +84,7 @@ const SALES_MANAGER = [
   P.LEADS_READ_ALL,
   P.LEADS_ASSIGN,
   P.PIPELINE_MANAGE,
+  P.SITE_MANAGE,
   P.BOOKINGS_CANCEL,
   P.RECEIPTS_CREATE,
   P.CHEQUES_MANAGE,

@@ -11,6 +11,7 @@ import { parseArgs } from 'node:util';
 import sharp from 'sharp';
 import { env } from '#config/env.js';
 import { connectDB, disconnectDB } from '#config/db.js';
+import '#jobs/index.js'; // registers job types, so changes can queue website revalidation
 import { permissionsFor } from '#shared/auth/permissions.js';
 import { getCurrentOrg } from '#modules/organizations/organization.service.js';
 import { User } from '#modules/users/user.model.js';
@@ -30,6 +31,9 @@ import {
 } from '#modules/projects/project.validation.js';
 import { zUnitBulk } from '#modules/units/unit.validation.js';
 import { zFloorPlanCreate } from '#modules/floorplans/floorplan.service.js';
+import * as construction from '#modules/construction/construction.service.js';
+import { ConstructionUpdate } from '#modules/construction/constructionUpdate.model.js';
+import { zUpdateCreate } from '#modules/construction/construction.validation.js';
 
 const { values: args } = parseArgs({ options: { reset: { type: 'boolean', default: false } } });
 const TK = 100; // poisha per taka
@@ -421,7 +425,26 @@ async function uploadDrawing(ctx, user, svg, alt) {
     alt,
     ctx,
   });
-  return m.id;
+  return String(m._id); // createMedia returns a plain document (_id, no id virtual)
+}
+
+/** Placeholder "site photo": a tower with `cast` of `total` floors done (dev data only). */
+function progressDrawing(cast, total, label) {
+  const w = 1200;
+  const h = 800;
+  const fh = 44;
+  const x0 = 420;
+  const base = 700;
+  let floors = '';
+  for (let i = 0; i < total; i++) {
+    const y = base - (i + 1) * fh;
+    const done = i < cast;
+    floors += `<rect x="${x0}" y="${y}" width="360" height="${fh - 6}" fill="${done ? '#8a8f7a' : 'none'}" stroke="#4b5040" stroke-width="3" stroke-dasharray="${done ? '0' : '10 8'}"/>`;
+  }
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
+<rect width="${w}" height="${h}" fill="#e9e4d8"/><rect y="${base}" width="${w}" height="${h - base}" fill="#b9ad92"/>
+${floors}<text x="40" y="70" font-family="sans-serif" font-size="34" fill="#2f3326">${label}</text>
+<text x="40" y="115" font-family="sans-serif" font-size="22" fill="#5d604f">Demo placeholder — replace with a real site photo</text></svg>`;
 }
 
 // ── run ────────────────────────────────────────────────────────────────────────
@@ -456,14 +479,29 @@ try {
       .select('mediaId')
       .setOptions({ withDeleted: true })
       .lean();
+    const updates = await ConstructionUpdate.find({ orgId: org._id, projectId: { $in: ids } })
+      .select('photos')
+      .setOptions({ withDeleted: true })
+      .lean();
     await Promise.all([
+      ConstructionUpdate.deleteMany({ orgId: org._id, projectId: { $in: ids } }).setOptions({
+        withDeleted: true,
+      }),
       Unit.deleteMany({ orgId: org._id, projectId: { $in: ids } }),
       Block.deleteMany({ orgId: org._id, projectId: { $in: ids } }),
       FloorPlan.deleteMany({ orgId: org._id, projectId: { $in: ids } }),
       Project.deleteMany({ orgId: org._id, _id: { $in: ids } }),
       // drawings: soft delete → the media purge job removes the files after 7 days
       Media.updateMany(
-        { orgId: org._id, _id: { $in: plans.map((p) => p.mediaId) } },
+        {
+          orgId: org._id,
+          _id: {
+            $in: [
+              ...plans.map((p) => p.mediaId),
+              ...updates.flatMap((u) => u.photos.map((ph) => ph.mediaId)),
+            ],
+          },
+        },
         { $set: { deletedAt: new Date() } },
       ),
     ]);
@@ -668,7 +706,54 @@ try {
       });
     }
 
-    console.log(`✔ ${p.slug}: ${created.length} unit(s)${d.plans ? ' + plans' : ''}`);
+    // construction updates (B2b) for projects under construction
+    let posted = 0;
+    if (p.stage === 'ongoing' && p.kind === 'apartment') {
+      const STEPS = [
+        ['2026-05-20', 'Piling complete', 'পাইলিং সম্পন্ন', 15, 'piling', 0],
+        [
+          '2026-07-28',
+          'Basement and ground floor cast',
+          'বেসমেন্ট ও নিচতলার ঢালাই সম্পন্ন',
+          30,
+          'basement',
+          1,
+        ],
+        [
+          '2026-10-02',
+          'Fourth-floor slab cast in Building A',
+          'ভবন এ-তে চতুর্থ তলার ছাদ ঢালাই সম্পন্ন',
+          45,
+          'structure',
+          4,
+        ],
+      ];
+      for (const [date, en, bn, percent, milestone, cast] of STEPS) {
+        const photo = await uploadDrawing(ctx, user, progressDrawing(cast, 10, en), en);
+        await construction.createUpdate({
+          orgId: org._id,
+          projectId: p.id,
+          input: zUpdateCreate.parse({
+            date,
+            title: { en, bn },
+            body: {
+              en: 'Work is on schedule. Our engineer checked the reinforcement before casting.',
+              bn: 'কাজ সময়মতো চলছে। ঢালাইয়ের আগে আমাদের প্রকৌশলী রডের কাজ যাচাই করেছেন।',
+            },
+            percent,
+            milestone,
+            photos: [{ mediaId: photo, caption: { en, bn } }],
+            published: true,
+          }),
+          ctx,
+        });
+        posted += 1;
+      }
+    }
+
+    console.log(
+      `✔ ${p.slug}: ${created.length} unit(s)${d.plans ? ' + plans' : ''}${posted ? ` + ${posted} construction updates` : ''}`,
+    );
   }
   console.log(
     '\nDone. Open /bn/projects on the website (the API must be running for revalidation jobs).',
