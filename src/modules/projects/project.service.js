@@ -62,6 +62,7 @@ export function toProject(p, { media, summary } = {}) {
     name: p.name,
     nameBn: p.nameBn ?? null,
     slug: p.slug,
+    code: p.code ?? null,
     kind: p.kind,
     stage: p.stage,
     published: p.published,
@@ -91,6 +92,10 @@ export function toProject(p, { media, summary } = {}) {
     publicPricing: p.publicPricing,
     pricing: p.pricing ?? {},
     pricingUpdatedAt: p.pricingUpdatedAt ?? null,
+    salesPolicy: {
+      cancellationDeductionBps: p.salesPolicy?.cancellationDeductionBps ?? 1000,
+      transferFee: p.salesPolicy?.transferFee ?? 0,
+    },
     seo: withMedia(parseSeo(p.seo), media ?? new Map()),
     ...(summary !== undefined && { inventory: summary }),
     version: p.__v ?? 0,
@@ -202,6 +207,10 @@ function applyFields(doc, input, kind) {
   ];
   for (const k of simple) if (input[k] !== undefined) doc.set(k, input[k]);
 
+  if (input.code !== undefined) doc.code = input.code;
+  if (input.salesPolicy !== undefined) {
+    for (const [k, v] of Object.entries(input.salesPolicy)) doc.set(`salesPolicy.${k}`, v);
+  }
   if (input.seo !== undefined) {
     doc.seo = input.seo;
     doc.markModified('seo');
@@ -313,6 +322,8 @@ export async function createProject({ orgId, input, ctx }) {
 
 const AUDITED = [
   'name',
+  'code',
+  'salesPolicy',
   'nameBn',
   'slug',
   'stage',
@@ -500,13 +511,20 @@ export async function projectSummaries(orgId, ids) {
   const unique = [...new Set(ids.filter(Boolean).map(String))];
   if (!unique.length) return new Map();
   const rows = await Project.find({ orgId, _id: { $in: unique } })
-    .select('name nameBn slug kind')
+    .select('name nameBn slug kind code')
     .setOptions({ withDeleted: true })
     .lean();
   return new Map(
     rows.map((p) => [
       String(p._id),
-      { id: String(p._id), name: p.name, nameBn: p.nameBn ?? null, slug: p.slug, kind: p.kind },
+      {
+        id: String(p._id),
+        name: p.name,
+        nameBn: p.nameBn ?? null,
+        slug: p.slug,
+        kind: p.kind,
+        code: p.code ?? null,
+      },
     ]),
   );
 }

@@ -311,6 +311,43 @@ export async function assertPublicMedia(orgId, ids, { kind } = {}) {
   return found;
 }
 
+/**
+ * For records that hold personal documents (customer NID/photo — B4): every id must be a live
+ * PRIVATE file of this org. Private files are only ever streamed through the authenticated route.
+ */
+export async function assertPrivateMedia(orgId, ids) {
+  const unique = [...new Set(ids.filter(Boolean).map(String))];
+  if (!unique.length) return new Map();
+  const rows = await Media.find({ orgId, _id: { $in: unique }, visibility: 'private' }).lean();
+  const found = new Map(rows.map((m) => [String(m._id), m]));
+  const bad = unique.filter((id) => !found.has(id));
+  if (bad.length) {
+    throw new AppError('Some files were not found or are not private uploads', {
+      statusCode: 422,
+      code: 'INVALID_MEDIA',
+      details: bad.map((id) => ({ path: 'mediaId', message: id })),
+    });
+  }
+  return found;
+}
+
+/**
+ * B4.3: an image variant's bytes as a data: URI (company logo on printed documents), or null
+ * when the media is missing. Small files only — logos are a few KB as WebP.
+ */
+export async function mediaDataUri(orgId, id, variant = 'card') {
+  if (!id) return null;
+  const m = await Media.findOne({ orgId, _id: id, kind: 'image' }).lean();
+  const variants = m?.variants ?? {};
+  const v = variants[variant] ?? variants.thumb ?? variants.full;
+  if (!v) return null;
+  const chunks = [];
+  for await (const c of storage.createReadStream({ key: v.key, visibility: m.visibility })) {
+    chunks.push(c);
+  }
+  return `data:${m.mime};base64,${Buffer.concat(chunks).toString('base64')}`;
+}
+
 /** id → public media JSON for the given ids (missing/deleted/private ids are skipped). */
 export async function publicMediaMap(orgId, ids) {
   const unique = [...new Set(ids.filter(Boolean).map(String))];

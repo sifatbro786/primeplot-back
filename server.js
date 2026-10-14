@@ -5,6 +5,7 @@ import { createApp } from './src/app.js';
 import { startScheduler, stopScheduler } from '#jobs/index.js';
 import { closeEmail } from '#integrations/email/index.js';
 import { closeSockets, initSockets } from '#sockets/index.js';
+import { closePdf } from '#modules/documents/pdf.js';
 
 const SHUTDOWN_TIMEOUT_MS = 10_000;
 
@@ -33,6 +34,7 @@ async function shutdown(signal, exitCode = 0) {
     server?.closeIdleConnections?.();
     await stopScheduler(); // finish the in-flight job tick before the DB goes away
     closeEmail();
+    await closePdf();
     await disconnectDB();
     logger.info('Shutdown complete');
   } catch (err) {

@@ -35,6 +35,16 @@ import '#modules/meta/metaLeadEvent.model.js';
 import '#modules/site/sitePage.model.js';
 import '#modules/site/siteSettings.model.js';
 import '#modules/construction/constructionUpdate.model.js';
+import '#modules/customers/customer.model.js';
+import '#modules/bookings/booking.model.js';
+import '#modules/bookings/paymentPlan.model.js';
+import '#modules/accounts/counter.model.js';
+import '#modules/accounts/accountSettings.model.js';
+import '#modules/accounts/bankAccount.model.js';
+import '#modules/accounts/receipt.model.js';
+import '#modules/accounts/ledgerEntry.model.js';
+import '#modules/accounts/cheque.model.js';
+import '#modules/documents/document.model.js';
 import { assertPasswordAllowed, zPassword } from '#modules/auth/passwordPolicy.js';
 
 const { values: a } = parseArgs({

@@ -19,6 +19,7 @@ import { Project } from '#modules/projects/project.model.js';
 import { Block } from '#modules/projects/block.model.js';
 import { Unit } from '#modules/units/unit.model.js';
 import { FloorPlan } from '#modules/floorplans/floorplan.model.js';
+import { Booking } from '#modules/bookings/booking.model.js';
 import { Media } from '#modules/media/media.model.js';
 import * as projects from '#modules/projects/project.service.js';
 import * as units from '#modules/units/unit.service.js';
@@ -52,6 +53,7 @@ const DEMO = [
       name: 'Lake View Residency',
       nameBn: 'লেক ভিউ রেসিডেন্সি',
       slug: 'lake-view-residency',
+      code: 'LVR',
       kind: 'apartment',
       stage: 'ongoing',
       published: true,
@@ -194,6 +196,7 @@ const DEMO = [
       name: 'Uttara Green Court',
       nameBn: 'উত্তরা গ্রিন কোর্ট',
       slug: 'uttara-green-court',
+      code: 'UGC',
       kind: 'apartment',
       stage: 'ready',
       published: true,
@@ -269,6 +272,7 @@ const DEMO = [
       name: 'Purbachal Shapla City',
       nameBn: 'পূর্বাচল শাপলা সিটি',
       slug: 'purbachal-shapla-city',
+      code: 'PSC',
       kind: 'plot',
       stage: 'ongoing',
       published: true,
@@ -337,6 +341,7 @@ const DEMO = [
       name: 'Dhanmondi Lakeside',
       nameBn: 'ধানমন্ডি লেকসাইড',
       slug: 'dhanmondi-lakeside',
+      code: 'DLS',
       kind: 'apartment',
       stage: 'upcoming',
       published: true,
@@ -475,6 +480,17 @@ try {
       .setOptions({ withDeleted: true })
       .lean();
     const ids = old.map((p) => p._id);
+    // B4: receipts and the ledger are permanent — never wipe a project that has sales.
+    const sold = await Booking.countDocuments({
+      orgId: org._id,
+      projectId: { $in: ids },
+    }).setOptions({ withDeleted: true });
+    if (sold) {
+      throw new Error(
+        `${sold} booking(s) exist on the demo projects — reset refused (receipts are permanent). ` +
+          'Use a fresh database for a clean demo.',
+      );
+    }
     const plans = await FloorPlan.find({ orgId: org._id, projectId: { $in: ids } })
       .select('mediaId')
       .setOptions({ withDeleted: true })

@@ -680,3 +680,278 @@ The site caches both under the **`site`** tag (revalidated on publish / settings
 | `GET /public/construction/latest?limit≤6` | — | The latest published update of each published project, newest first, with `project: { slug, name, nameBn, stage, cover }` |
 
 Public project detail adds `construction: { percent, milestone, date, count } | null` (latest published update). Changes revalidate the project's tags and `site`.
+
+---
+
+## B4.1 — Customers, bookings, payment plans, receipts
+
+Scope locked with the owner on 2026-10-14 (see PROGRESS › Resolved decisions). B4.2 adds cheques/PDC, transfer, cancellation, allotment/registration/handover, reschedule/charges and reports; B4.3 adds QR documents, PDF and the receipt e-mail.
+
+### Conventions for B4
+- **Money** in integer poisha. **Business dates** (booking, due, receipt dates) are calendar days in Dhaka time, sent and returned as `YYYY-MM-DD`.
+- **Visibility:** `bookings:read` (executive) sees only bookings they sold, those bookings' receipts, and customers they created or sold to — anything else is **404**. `bookings:read_all` (manager, admin) sees everything.
+- **Numbers:** booking `LVR-BK-00045` (per project), receipt `LVR-2627-000123` (per project per fiscal year, July–June from Company settings), customer `C-000123`. Booking and receipt numbers are taken inside the transaction → **gapless**; a reversed receipt keeps its number.
+- **Project code** (`projects.code`, 2–6 letters/digits, unique, upper-cased) is required before the first booking: `422 PROJECT_CODE_REQUIRED`. Set it with `PATCH /projects/:id { code }`. Projects also carry `salesPolicy { cancellationDeductionBps (default 1000 = 10 %), transferFee (poisha, default 0) }` for B4.2.
+- **Idempotency:** `POST /bookings` and `POST /bookings/:id/receipts` accept `Idempotency-Key` (8–100 chars `[A-Za-z0-9_-]`, a UUID fits). A retry with the same key returns the first result with `200` and `meta.replayed: true`; the same key from another user/booking → `409 IDEMPOTENCY_KEY_REUSED`; a malformed key → `400 INVALID_IDEMPOTENCY_KEY`.
+- **Allocation:** a receipt pays the oldest unpaid schedule items first (dated items by due date, then items without a date — milestones/handover not called yet). Paying ahead pre-pays the next items; more than the outstanding balance → `422 OVERPAYMENT { outstanding }`.
+- **Ledger:** receipts and reversals are append-only `ledger_entries`; `schedule[].paid` is a cache of it. `GET /bookings/:id/ledger` reports `integrity.ok`.
+
+### Permissions
+| Permission | Executive | Manager | Admin |
+|---|---|---|---|
+| `bookings:read` / `bookings:create` (incl. booking money at booking) | ✔ | ✔ | ✔ |
+| `bookings:read_all`, `bookings:override` (waive booking money, custom schedule), `plans:manage`, `receipts:create` | | ✔ | ✔ |
+| `receipts:reverse`, `bookings:discount_unlimited`, `accounts:settings` (settings, bank accounts) | | | ✔ |
+
+Discount cap = `accounts settings.discountLimitBps[role]` × the unit's **base** price line (defaults: executive 1 %, manager 3 %). Above it → `403 DISCOUNT_LIMIT { capBps, maxAmount }`.
+
+### Shapes
+```jsonc
+// Customer
+{ "id", "customerNo": "C-000001", "name", "nameBn", "fatherName", "motherName", "spouseName",
+  "dateOfBirth": "1985-04-12", "nationality": "Bangladeshi", "nid", "passportNo", "tin",
+  "phone": "+8801712345678", "altPhone", "email", "presentAddress", "permanentAddress", "foreignAddress",
+  "occupation", "organization", "locale": "bn|en|null", "photoMediaId", "documentMediaIds": [],
+  "leadId", "notes", "hasPortalAccount": false, "version", "createdAt", "updatedAt" }
+// Plan spec (template) — percent = basis points of the contract, fixed = poisha
+{ "bookingMoney": { "type": "fixed", "value": 50000000 },
+  "downPayment":  { "type": "percent", "value": 2000, "dueAfterDays": 15 } | null,
+  "installments": { "count": 36, "everyMonths": 1|2|3|4|6|12, "firstDueAfterMonths"?: 1 } | null,
+  "milestones":   [{ "key": "roof", "label": "Roof casting", "labelBn": "ছাদ ঢালাই", "type": "percent", "value": 500 }],
+  "handover":     { "type": "percent"|"fixed", "value" } | { "type": "balance" } | null }
+//   Exactly one part takes the balance: the installments, or (without installments) a handover of type balance.
+//   Percent parts are rounded down to whole taka; installments are equal whole-taka amounts and the
+//   last one absorbs the rounding — the schedule always equals the contract exactly.
+// Schedule item
+{ "id", "seq": 3, "code": "booking_money|down_payment|installment|milestone|handover|charge",
+  "label": "Installment 1 of 36", "labelBn": "কিস্তি ১/৩৬", "dueDate": "2026-11-14" | null,
+  "amount", "paid", "remaining", "status": "paid|partial|due|overdue|upcoming|not_called",
+  "milestoneKey", "note" }
+// Booking (detail; the list returns the summary part only)
+{ "id", "bookingNo": "LVR-BK-00001", "project": { "id", "name", "nameBn", "slug", "kind", "code" },
+  "unitId", "unitCode", "kind", "blockId", "customerId", "customerName",
+  "customer": CustomerRef, "coApplicants": [CustomerRef], "nominees": [{ "name", "relation", "phone", "nid", "sharePct" }],
+  "leadId", "soldBy": { "id", "name" }, "bookingDate": "2026-10-14",
+  "price": { "strategy", "rateUnit", "lines": [PriceLine], "listTotal", "baseAmount",
+             "discount": { "amount", "reason" }, "contractTotal" },
+  "plan": { "id", "name", "custom": false }, "schedule": [ScheduleItem],
+  "contractTotal", "totals": { "total", "paid", "outstanding", "dueNow", "overdue",
+                               "nextDue": { "itemId", "dueDate", "amount" } | null },
+  "bookingMoneyWaived": null | { "reason", "by": { "id", "name" } },
+  "status": "active|cancelled", "note", "receipts": [Receipt], "version", "createdAt" }
+// CustomerRef
+{ "id", "customerNo", "name", "nameBn", "phone" }
+// Receipt
+{ "id", "receiptNo": "LVR-2627-000001", "fiscalYear": 2026, "projectId", "bookingId", "bookingNo",
+  "unitId", "unitCode", "customerId", "customerName", "date": "2026-10-14",
+  "amount", "amountText": "5,00,000.00",
+  "amountInWords": { "en": "Five Lakh Taka Only", "bn": "পাঁচ লক্ষ টাকা মাত্র" },
+  "mode": "cash|bank_transfer|pay_order|cheque|online|slip",
+  "bankAccount": { "id", "name", "bankName", "accountNo" } | null, "reference", "instrumentNo",
+  "instrumentBank", "instrumentDate", "context": "booking|payment",
+  "allocations": [{ "itemId", "seq", "code", "label", "amount" }], "note",
+  "receivedBy": { "id", "name" }, "status": "valid|reversed",
+  "reversal": null | { "at", "by": { "id", "name" }, "reason" }, "createdAt" }
+// Payment (request body for booking money and receipts)
+{ "amount", "mode": "cash|bank_transfer|pay_order", "date"?: "YYYY-MM-DD",
+  "bankAccountId"?, "reference"?, "instrumentNo"?, "instrumentBank"?, "instrumentDate"?, "note"? }
+//   bank_transfer → bankAccountId + reference required; pay_order → instrumentNo + instrumentBank.
+//   Cheques come with the cheque register (B4.2; receipt on clearing). Online/slip: B5.
+```
+
+### Customers 🔒 `/customers`
+| Endpoint | Permission | Notes |
+|---|---|---|
+| `GET /customers?q&page&limit` | read / read_all | `q` matches name, customer no. prefix, exact NID/passport, phone in any form |
+| `POST /customers` | `bookings:create` | → `201 Customer` · `409 DUPLICATE` (NID) · `400 INVALID_PHONE` · `422 INVALID_MEDIA` (photo/documents must be **private** uploads) · `404` lead not yours |
+| `GET /customers/:id` | read / read_all | |
+| `PATCH /customers/:id` | `bookings:create` | Body: any fields + `version` → `409 STALE_VERSION` |
+
+### Payment plans 🔒 `/payment-plans`
+| Endpoint | Permission | Notes |
+|---|---|---|
+| `GET /payment-plans?projectId&active` | read / read_all | With `projectId`: that project's plans + company-wide ones (`projectId: null`) |
+| `POST /payment-plans` | `plans:manage` | `{ name, nameBn?, description?, projectId?, spec, active?, sortOrder? }` → `201` · `422` invalid spec |
+| `PATCH /payment-plans/:id` | `plans:manage` | + `version`. Existing bookings keep their copy |
+| `DELETE /payment-plans/:id` | `plans:manage` | Soft delete → `204` |
+
+### Bookings 🔒 `/bookings`
+| Endpoint | Permission | Notes |
+|---|---|---|
+| `POST /bookings/preview` | `bookings:create` | `{ unitId, planId \| schedule, bookingDate?, discount? }` → `{ unit { id, code, kind, status }, project { id, name, code }, price { lines, listTotal, baseAmount, discount, contractTotal }, discountCap { bps, maxAmount }, bookingDate, plan, schedule: [{ seq, code, label, labelBn, dueDate, amount, milestoneKey }], bookingMoney, bookingMoneyRequired, warnings: [PROJECT_CODE_REQUIRED \| UNIT_HELD_BY_OTHER \| UNIT_NOT_AVAILABLE] }`. Writes nothing |
+| `POST /bookings` | `bookings:create` | See below → `201 Booking` |
+| `GET /bookings` | read / read_all | Filters `projectId, status, soldBy (read_all), customerId (applicant or co-applicant), q (booking no. prefix, unit code, customer name), from, to (booking date)`; offset pagination; newest booking date first |
+| `GET /bookings/:id` | read / read_all | Detail with receipts |
+| `PATCH /bookings/:id` | `bookings:create` | `{ version, nominees?, note? }` |
+| `GET /bookings/:id/ledger` | read / read_all | `{ entries: [{ id, date, type: receipt\|reversal, ref, receiptId, amount (signed), paidToDate, note, by }], schedule, totals, integrity { ok, paidTotal, ledgerTotal, mismatchedItems } }` |
+| `POST /bookings/:id/receipts` | `receipts:create` | Body: Payment (`date` default today, ≤ today, ≥ booking date, at most `receiptBackdateDays` back) → `201 Receipt` |
+
+**`POST /bookings` body:**
+```jsonc
+{ "unitId", "customerId", "coApplicantIds"?: [≤ 2], "nominees"?: [{ "name", "relation", "phone"?, "nid"?, "sharePct" }],  // shares = 100
+  "leadId"?,                       // buyer lead visible to you → moved to the won stage + "booking" timeline entry
+  "bookingDate"?: "YYYY-MM-DD",    // default today; not in the future; ≤ receiptBackdateDays back
+  "planId" | "schedule": [{ "code", "label"?, "labelBn"?, "dueDate"?, "amount" }],  // custom: bookings:override, must equal the contract
+  "discount"?: { "amount", "reason" },                // reason required when amount > 0
+  "expectedTotal"?: 1030000000,    // list total the wizard showed → 409 PRICE_CHANGED if the rate card changed
+  "payment"?: Payment,             // booking money, dated the booking date; ≥ the booking-money item
+  "waiveReason"?: "…",             // instead of payment — bookings:override
+  "note"? }
+```
+One transaction: unit → `booked` (from `available`, an expired hold, your own hold, or — with `units:write` — anyone's hold) + booking number + price snapshot + schedule + booking-money receipt + customer access for the seller + audit. After commit: unit socket delta + website revalidation, lead → won, receipt SMS (if switched on).
+
+Errors: `409 UNIT_HELD_BY_OTHER · UNIT_STATE_CONFLICT { status } · PRICE_CHANGED { listTotal }` · `403 DISCOUNT_LIMIT · CUSTOM_SCHEDULE_NOT_ALLOWED · WAIVE_NOT_ALLOWED` · `422 PROJECT_CODE_REQUIRED · PRICE_NOT_SET · INVALID_DISCOUNT · BOOKING_MONEY_REQUIRED { required } · BOOKING_MONEY_SHORT { required } · OVERPAYMENT · INVALID_LEAD · PLAN_EXCEEDS_PRICE · INVALID_PLAN(spec) · SCHEDULE_TOTAL_MISMATCH { contract, scheduled, difference } · INVALID_SCHEDULE · BOOKING_DATE_IN_FUTURE · BOOKING_DATE_TOO_OLD` · `400 INVALID_PLAN (plan not available) · INVALID_BANK_ACCOUNT · INVALID_PHONE` · `404` unit/customer/lead not visible.
+
+Receipt errors: `409 BOOKING_NOT_ACTIVE · BOOKING_BUSY (retry)` · `422 OVERPAYMENT · RECEIPT_DATE_IN_FUTURE · RECEIPT_DATE_TOO_OLD · RECEIPT_BEFORE_BOOKING · PROJECT_CODE_REQUIRED` · `400 INVALID_BANK_ACCOUNT`.
+
+### Receipts 🔒 `/receipts`
+| Endpoint | Permission | Notes |
+|---|---|---|
+| `GET /receipts` | read / read_all | Filters `projectId, bookingId, mode, status, receiptNo, from, to` (receipt date); cursor pagination, newest first |
+| `GET /receipts/:id` | read / read_all | |
+| `POST /receipts/:id/reverse` | `receipts:reverse` | `{ reason }` (≥ 3 chars) → reversed Receipt. Negative ledger entry with the same allocations; the number stays used. `409 ALREADY_REVERSED` |
+
+### Accounts settings & bank accounts 🔒 `/accounts`
+| Endpoint | Permission | Notes |
+|---|---|---|
+| `GET /accounts/settings` | `accounts:read` | `{ version, discountLimitBps { sales_executive, sales_manager }, bookingMoneyRequired, receiptBackdateDays, notify { receiptEmail, receiptSms } }` (defaults 100 / 300 / true / 31 / true / false) |
+| `PATCH /accounts/settings` | `accounts:settings` | Partial + `version` |
+| `GET /accounts/bank-accounts?active` | `accounts:read` | `[{ id, name, bankName, branch, accountName, accountNo, routingNo, active, version }]` |
+| `POST /accounts/bank-accounts` | `accounts:settings` | `409 DUPLICATE` account no. |
+| `PATCH /accounts/bank-accounts/:id` | `accounts:settings` | + `version`; deactivate with `active: false` (never deleted) |
+
+Receipt SMS (`notify.receiptSms`, off by default): `প্রিয় {first name}, আপনার ৳{amount} পেমেন্ট গ্রহণ করা হয়েছে। রসিদ নং {receiptNo}। ধন্যবাদ — {company}` (English for customers with `locale: en`), SMS log purpose `receipt`. The receipt e-mail with the PDF arrives in B4.3.
+
+---
+
+## B4.2 — Cheques, sale stages, schedule changes, transfer, cancellation, reports
+
+All writes run in one MongoDB transaction with the booking's version check; a concurrent change → `409 STALE_VERSION`. Event dates (`date`) default to today (Dhaka), cannot be in the future (`422 DATE_IN_FUTURE`) or before the booking (`422 DATE_TOO_EARLY`). Actions on a cancelled booking → `409 BOOKING_NOT_ACTIVE`; at the wrong stage → `409 BOOKING_STAGE_CONFLICT { stage }`.
+
+### Permissions (additions)
+| Permission | Executive | Manager | Admin |
+|---|---|---|---|
+| `cheques:manage` (register, deposit, clear, bounce, return) | | ✔ | ✔ |
+| `bookings:override` — also: allot / register / handover, transfer, charges, call items, reschedule, change the cancellation deduction | | ✔ | ✔ |
+| `bookings:cancel` (cancel, refunds) | | ✔ | ✔ |
+| `reports:read` | | ✔ | ✔ |
+| `documents:issue` (statement) | | ✔ | ✔ |
+
+Executives can still take **booking money by cheque** inside `POST /bookings` (`payment.mode: "cheque"`).
+
+### Shapes
+```jsonc
+// Cheque
+{ "id", "bookingId", "bookingNo", "projectId", "unitCode", "customerId", "customerName",
+  "chequeNo": "0045123", "bank": "BRAC Bank", "branch", "chequeDate": "2026-11-14", "amount",
+  "receivedDate", "postDated": true,
+  "status": "received|deposited|cleared|bounced|returned",
+  "depositBankAccount": { "id", "name", "bankName", "accountNo" } | null, "depositedDate",
+  "clearedDate", "receiptId", "bouncedDate", "bounceReason", "bounceCount", "returnedReason",
+  "history": [{ "status", "date", "at", "by": { "id", "name" }, "note" }], "note", "createdAt" }
+// Booking detail — additions
+{ "stage": "booked|allotted|registered|handed_over",
+  "allotment": { "date", "by", "note" } | null,
+  "registration": { "date", "by", "note", "deedNo", "subRegistryOffice" } | null,
+  "handover": { "date", "by", "note" } | null,
+  "holders": [{ "id", "customerId", "customerName", "until", "toCustomerId", "fee", "feeWaivedReason", "by", "note" }],
+  "cancellation": { "date", "by", "reason", "paid", "deductionBps", "deduction", "refundable",
+                    "refunded", "refundDue", "overrideReason" } | null,
+  "cheques": [Cheque],
+  "schedule": [{ …ScheduleItem, "chargeKind": "delay|utility|registration|transfer_fee|cheque_bounce|other" | null }] }
+// Booking summary (list) gains "stage". totals.total / outstanding include charges; contractTotal never does.
+// POST /bookings payment by cheque
+{ "mode": "cheque", "chequeNo", "bank", "branch"?, "chequeDate", "amount", "note"? }
+//   → booking created, cheque `received`, no receipt yet (booking money counts as "taken").
+// Ledger entry types: receipt | reversal | refund. GET /bookings/:id/ledger adds "refunded" and per-row "refundedToDate";
+// integrity compares receipts + reversals with the schedule (refunds are not allocated).
+```
+
+### Cheques 🔒
+| Endpoint | Permission | Notes |
+|---|---|---|
+| `POST /bookings/:id/cheques` | `cheques:manage` | `{ chequeNo, bank, branch?, chequeDate, amount, receivedDate?, note? }` → `201 Cheque` + cheque acknowledgement document. `409 DUPLICATE_CHEQUE` (same bank + number still open) · `422 OVERPAYMENT { outstanding, pendingCheques }` (open cheques count) · `422 CHEQUE_STALE` (dated > 6 months ago) |
+| `GET /cheques` | read / read_all | `status, open=true, projectId, bookingId, dueFrom, dueTo (cheque date), q (cheque no. prefix)`; cursor, newest first. Executives: own bookings |
+| `GET /cheques/:id` | read / read_all | |
+| `POST /cheques/:id/deposit` | `cheques:manage` | `{ bankAccountId, date?, note? }` from `received` or `bounced` (re-presenting) |
+| `POST /cheques/:id/clear` | `cheques:manage` | `{ date?, bankAccountId? (required if not deposited), note? }` from `received`/`deposited` → `{ cheque, receipt }`. The numbered receipt (mode `cheque`, instrument = cheque no./bank/date) and the allocation are made here. Receipt date rules apply (`RECEIPT_DATE_*`) · `422 OVERPAYMENT` if the balance dropped meanwhile · `409 BOOKING_NOT_ACTIVE` (cancelled → return the cheque) |
+| `POST /cheques/:id/bounce` | `cheques:manage` | `{ reason, date?, fee? }` from `deposited`. Adds a `cheque_bounce` charge (default: accounts setting `chequeBounceFee`, 0 = none) and notifies the seller + cheque managers (`cheque.bounced`) |
+| `POST /cheques/:id/return` | `cheques:manage` | `{ reason }` from `received`/`bounced`; voids the acknowledgement |
+Wrong state → `409 CHEQUE_STATE_CONFLICT { status }`.
+
+### Sale stages 🔒 `bookings:override` → `{ data: Booking, meta: { warnings: [...] } }`
+| Endpoint | Body | Notes |
+|---|---|---|
+| `POST /bookings/:id/allot` | `{ date?, note? }` | booked → allotted (unit too) + allotment letter. Warnings (never blocks, owner Q6): `BOOKING_MONEY_UNPAID`, `DOWN_PAYMENT_UNPAID` |
+| `POST /bookings/:id/register` | `{ deedNo, subRegistryOffice?, date?, note? }` | allotted → registered. Warning `DUES_OUTSTANDING` |
+| `POST /bookings/:id/handover` | `{ date?, note? }` | registered → handed_over |
+
+### Schedule changes 🔒 `bookings:override`
+| Endpoint | Body | Notes |
+|---|---|---|
+| `POST /bookings/:id/charges` | `{ kind: delay\|utility\|registration\|other, label, labelBn?, amount, dueDate, note? }` | → `201 Booking`. Charges are outside the contract price (delay charge is manual in v1) |
+| `POST /bookings/:id/charges/:itemId/waive` | `{ reason }` | Removes an **unpaid** charge (`409 ITEM_PAID_LOCKED` otherwise) |
+| `POST /bookings/:id/schedule/:itemId/call` | `{ dueDate, note? }` | Give a milestone/handover (or any unpaid) item its due date |
+| `PUT /bookings/:id/schedule` | `{ version, reason, items: [{ id?, code, label?, labelBn?, dueDate?, amount }] }` | Replaces the contract items (charges kept). Must equal the contract (`422 SCHEDULE_TOTAL_MISMATCH`). `422 INVALID_SCHEDULE` with details when: booking-money item not kept, an item with payments removed or below its paid amount, a fully paid item changed, a type changed, a date before the booking. Before/after go to the audit log |
+
+### Transfer 🔒 `bookings:override`
+`POST /bookings/:id/transfer` `{ toCustomerId, coApplicantIds?, nominees?, date?, note?, waiveFeeReason? }` — booked/allotted only. `409 OVERDUE_DUES { overdue }` · `409 OPEN_CHEQUES` · `422 SAME_HOLDER`. Adds `project.salesPolicy.transferFee` as a `transfer_fee` charge (unless waived with a reason), moves the previous holder to `holders[]`, voids the old booking form / allotment letter, issues a transfer letter and new ones for the new holder. Existing receipts keep the old name.
+
+### Cancellation & refunds 🔒 `bookings:cancel`
+| Endpoint | Body | Notes |
+|---|---|---|
+| `POST /bookings/:id/cancel/preview` | `{ deductionAmount? }` | `{ paid, deductionBps, policyDeduction, deduction, refundable, overridden, openCheques, blockers }` |
+| `POST /bookings/:id/cancel` | `{ reason, date?, deductionAmount?, overrideReason? }` | booked/allotted only (`409 BOOKING_STAGE_CONFLICT` after registration). Default deduction = `salesPolicy.cancellationDeductionBps` × amount paid. A different amount needs `bookings:override` (`403 DEDUCTION_OVERRIDE_NOT_ALLOWED`) and `overrideReason` (`422 OVERRIDE_REASON_REQUIRED`); `422 INVALID_DEDUCTION` above the amount paid · `409 OPEN_CHEQUES`. Unit → cancelled → available (on sale again); booking `status: cancelled`; cancellation letter; booking form / allotment letter voided |
+| `POST /bookings/:id/refunds` | `{ amount, mode: cash\|bank_transfer\|pay_order\|cheque, date?, bankAccountId?, reference?, instrumentNo?, note? }` | Cancelled bookings only (`409 BOOKING_NOT_CANCELLED`). Refunds in parts; `422 REFUND_EXCEEDS_DUE { refundDue }`. Ledger entry `refund` with ref `LVR-RF-00001` (gapless per project) → `201 { refund { id, ref, date, amount, mode, note }, refundDue }` |
+
+### Reports 🔒 `reports:read`
+| Endpoint | Query | Response |
+|---|---|---|
+| `GET /reports/dues` | `projectId, soldBy, asOf (default today), overdueOnly (default true), page, limit` | `{ asOf, totals { outstanding, dueNow, overdue, buckets { d1_30, d31_60, d61_90, d90_plus }, bookings }, items: [{ bookingId, bookingNo, project, unitCode, stage, customer { id, name, phone }, soldBy, contractTotal, outstanding, dueNow, overdue, buckets, oldestDueDate, nextDue }], meta }` — most overdue first |
+| `GET /reports/collections` | `projectId, from, to (default this month), interval=day\|month` | `{ from, to, interval, total { count, amount }, byMode [{ mode, count, amount }], byProject [{ projectId, project, count, amount }], byPeriod [{ period, count, amount }], refunds { count, amount }, reversedReceipts }` — valid receipts by receipt date |
+| `GET /reports/pdcs` | `projectId, from (default today − 1 year), to (default today + 30 days)` | `{ from, to, today, totals { dueNow, upcoming, bounced }, dueNow: [Cheque], upcoming: [Cheque], bounced: [Cheque] }` — open cheques by cheque date + bounced ones needing action |
+
+### Settings (addition)
+`accounts settings.chequeBounceFee` (poisha, default 0) — `PATCH /accounts/settings { version, chequeBounceFee }`.
+
+---
+
+## B4.3 — QR-verified documents & PDF
+
+### How it works
+- **Types:** `receipt`, `booking_form`, `allotment_letter`, `statement`, `cancellation_letter`, `transfer_letter`, `cheque_ack`.
+- **Issued automatically** after the money/stage action commits: booking → booking form (+ receipt or cheque acknowledgement); receipt / cheque clearing → receipt; allotment → allotment letter; cancellation → cancellation letter; transfer → transfer letter + new booking form (+ allotment letter). Statements are issued on demand. A document that failed to issue is back-filled when the booking's document list is opened.
+- **Frozen:** each document stores a snapshot of what it prints (company, project, unit, holder, amounts, schedule…) and `contentHash` = SHA-256 of `{ type, number, snapshot }`. Later edits never change an issued document. Only the logo is drawn live.
+- **Void:** reversed receipt → its receipt document; returned cheque → acknowledgement; cancellation/transfer → booking form + allotment letter. A void document still opens, with a **VOID / বাতিল** watermark, and verifies as invalid.
+- **Language:** the holder's `locale`, else the company default; every page/PDF can be asked for in `bn` or `en`.
+- **Numbers:** receipt = receipt no.; booking form = booking no.; others `LVR-BK-00001/AL`, `/CN`, `/TR-1`, `/ST-20261014`, `/CQ-<cheque no.>`.
+- **QR / link:** `<PUBLIC_SITE_URL or CLIENT_URL>/verify/<token>` (token: 24 random URL-safe chars).
+- **PDF:** the same HTML printed by headless Chrome (Puppeteer, one shared browser, 2 pages at a time, `PDF_TIMEOUT_MS`). Valid documents are printed once per language and kept in private storage; void ones are printed fresh. Chrome missing → `503 PDF_UNAVAILABLE`.
+- **Receipt e-mail** (setting `notify.receiptEmail`, on): job `documents.emailReceipt` sends the PDF to the customer's e-mail (BN/EN template `receipt`, verify button). Skipped when the receipt was reversed before sending.
+
+### Shapes
+```jsonc
+// Document
+{ "id", "type", "number", "bookingId", "refId", "locale": "bn|en", "date": "2026-10-14",
+  "status": "valid|void", "voidReason", "voidedAt", "verifyUrl", "contentHash",
+  "issuedBy": { "id", "name" } | null, "createdAt" }
+// Public verification
+{ "valid": true, "status": "valid|void", "voidReason", "type", "number", "date", "issuedAt",
+  "organization": { "name", "nameBn" }, "project": { "name", "nameBn" }, "unitCode",
+  "holder": "A**** R****",   // masked — no phone, NID or address
+  "amount": 50000000 | null, // receipt, cheque ack, booking form (contract), cancellation (refundable)
+  "fingerprint": "e3b0c44298fc1c14" }
+```
+
+### Endpoints
+| Endpoint | Permission | Notes |
+|---|---|---|
+| `GET /bookings/:id/documents` | read / read_all | Newest first (back-fills missing ones) |
+| `POST /bookings/:id/statement` | `documents:issue` | → `201 Document` (statement as of today) |
+| `GET /documents/:id` | read / read_all | Seller scope like receipts (404 otherwise) |
+| `GET /documents/:id/html?locale=bn\|en` | read / read_all | The A4 page, `text/html`, self-contained (fonts, QR, logo inlined; no scripts; CSP `default-src 'none'`). F5 shows it in an iframe and prints it |
+| `GET /documents/:id/pdf?locale=&download=1` | read / read_all | `application/pdf`, `inline` (or `attachment` with `download=1`) |
+| `GET /public/verify/:token` | none | Not cached. Unknown/malformed token → 404 |
+
+### Env (new, optional)
+`PUBLIC_SITE_URL` (QR base, default `CLIENT_URL`), `PDF_CHROME_PATH` (use an installed Chrome/Chromium; default: the one `npm install` downloaded), `PDF_NO_SANDBOX` (true only when Chrome runs as root on a VPS), `PDF_TIMEOUT_MS` (30000).

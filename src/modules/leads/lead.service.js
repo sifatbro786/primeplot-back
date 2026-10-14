@@ -849,6 +849,53 @@ export async function moveLead({ orgId, user, id, move }) {
   )[0];
 }
 
+/**
+ * B4: a booking closes its lead as won (first `won` stage, top of the column), cancels open
+ * follow-ups and writes a `booking` entry. Runs after the booking commits; a lead that was
+ * merged/deleted meanwhile is skipped. Returns the lead id or null.
+ */
+export async function markLeadWon(orgId, leadId, { actorId, bookingId, bookingNo, unitCode }) {
+  const lead = await Lead.findOne({ orgId, _id: leadId }).lean();
+  if (!lead) return null;
+  const now = new Date();
+  const actor = actorId ? oid(actorId) : null;
+  if (lead.status !== 'won') {
+    const won = (await getStages(orgId, lead.type)).find((s) => s.kind === 'won');
+    if (won) {
+      const top = await Lead.findOne({ orgId, stageId: won._id })
+        .sort({ rank: 1 })
+        .select('rank')
+        .lean();
+      const set = {
+        stageId: won._id,
+        rank: rankBetween(null, top?.rank ?? null),
+        status: 'won',
+        closedAt: now,
+        openKey: null,
+        lostReason: null,
+        lostNote: null,
+        nextFollowUpAt: null,
+        lastActivityAt: now,
+        ...(!lead.firstResponseAt && { firstResponseAt: now }),
+      };
+      await Lead.updateOne({ orgId, _id: lead._id }, { $set: set, $inc: { __v: 1 } });
+      await LeadTask.updateMany(
+        { orgId, leadId: lead._id, status: 'open' },
+        { $set: { status: 'cancelled' } },
+      );
+      await addActivity(orgId, lead._id, 'stage_change', {
+        actorId: actor,
+        meta: { from: String(lead.stageId), to: String(won._id), status: 'won', lostReason: null },
+      });
+    }
+  }
+  await addActivity(orgId, lead._id, 'booking', {
+    actorId: actor,
+    meta: { bookingId: String(bookingId), bookingNo, unitCode },
+  });
+  return String(lead._id);
+}
+
 // ── Assignment ──────────────────────────────────────────────────────────────────
 
 async function applyAssignment(orgId, leads, assigneeId, { actor, ctx, bulk = false }) {

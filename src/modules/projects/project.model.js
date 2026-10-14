@@ -74,6 +74,14 @@ const projectSchema = new mongoose.Schema(
       match: /^[a-z0-9]+(?:-[a-z0-9]+)*$/,
       maxlength: 80,
     },
+    // Short code for document numbers (B4): receipts LVR-2627-000123, bookings LVR-BK-000045.
+    code: {
+      type: String,
+      trim: true,
+      uppercase: true,
+      match: /^[A-Z][A-Z0-9]{1,5}$/,
+      default: null,
+    },
     // Fixed at creation: units copy it and pricing strategy depends on it.
     kind: { type: String, enum: PROJECT_KINDS, required: true, immutable: true },
     stage: { type: String, enum: PROJECT_STAGES, default: 'upcoming' },
@@ -127,6 +135,12 @@ const projectSchema = new mongoose.Schema(
     seo: { type: mongoose.Schema.Types.Mixed, default: null },
     pricing: { type: pricingSchema, default: () => ({}) },
     pricingUpdatedAt: { type: Date, default: null },
+    // B4 (owner decision 2026-10-14): cancellation keeps this share of the amount paid; a transfer
+    // adds this fee (poisha) to the schedule.
+    salesPolicy: {
+      cancellationDeductionBps: { type: Number, min: 0, max: 10_000, default: 1000 },
+      transferFee: { type: Number, min: 0, default: 0 },
+    },
 
     createdBy: { type: ObjectId, ref: 'User', default: null },
   },
@@ -137,6 +151,13 @@ projectSchema.plugin(baseSchema);
 projectSchema.index(
   { orgId: 1, slug: 1 },
   { unique: true, partialFilterExpression: { deletedAt: { $type: 'null' } } },
+);
+projectSchema.index(
+  { orgId: 1, code: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { deletedAt: { $type: 'null' }, code: { $type: 'string' } },
+  },
 );
 projectSchema.index({ orgId: 1, published: 1, featured: -1, sortOrder: 1, createdAt: -1 });
 projectSchema.index({ orgId: 1, kind: 1, stage: 1 });

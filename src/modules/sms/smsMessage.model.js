@@ -4,7 +4,7 @@ import { baseSchema } from '#shared/plugins/baseSchema.js';
 const { ObjectId } = mongoose.Schema.Types;
 
 export const SMS_STATUSES = Object.freeze(['queued', 'sent', 'failed', 'skipped']);
-export const SMS_PURPOSES = Object.freeze(['lead_auto_reply', 'test']);
+export const SMS_PURPOSES = Object.freeze(['lead_auto_reply', 'test', 'receipt']); // receipt: B4
 
 /**
  * SMS delivery log (B3.2) — one document per message, written before sending.

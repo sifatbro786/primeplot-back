@@ -108,8 +108,15 @@ const zLocation = z
   .strict()
   .refine((l) => (l.lat == null) === (l.lng == null), 'Give both lat and lng, or neither');
 
+export const zProjectCode = z
+  .string()
+  .trim()
+  .toUpperCase()
+  .regex(/^[A-Z][A-Z0-9]{1,5}$/, '2–6 letters/digits, starting with a letter');
+
 const projectFields = {
   name: zText(160).min(2),
+  code: zProjectCode.nullable(), // B4 — document numbers
   nameBn: optText(160),
   slug: zSlug,
   stage: z.enum(PROJECT_STAGES),
@@ -142,6 +149,12 @@ const projectFields = {
   brochureMediaId: zid.nullable(),
   publicPricing: z.boolean(),
   seo: zSeoObject.nullable(), // B2b — null = automatic
+  salesPolicy: z
+    .object({
+      cancellationDeductionBps: z.number().int().min(0).max(10_000).optional(),
+      transferFee: zMoney.optional(),
+    })
+    .strict(), // B4
 };
 
 const optionalAll = (shape) =>

@@ -39,8 +39,12 @@ export const P = Object.freeze({
   SITE_MANAGE: 'site:manage',
 
   // Sales & accounts (B4)
-  BOOKINGS_READ: 'bookings:read',
+  BOOKINGS_READ: 'bookings:read', // own bookings (sold by me) and their customers
+  BOOKINGS_READ_ALL: 'bookings:read_all',
   BOOKINGS_CREATE: 'bookings:create',
+  BOOKINGS_OVERRIDE: 'bookings:override', // book without booking money (reason), custom schedule
+  DISCOUNT_UNLIMITED: 'bookings:discount_unlimited', // no per-role discount cap
+  PLANS_MANAGE: 'plans:manage', // payment plan templates
   BOOKINGS_CANCEL: 'bookings:cancel',
   ACCOUNTS_READ: 'accounts:read',
   RECEIPTS_CREATE: 'receipts:create',
@@ -49,6 +53,7 @@ export const P = Object.freeze({
   PAYMENT_SLIPS_VERIFY: 'payment_slips:verify',
   DOCUMENTS_ISSUE: 'documents:issue',
   REPORTS_READ: 'reports:read',
+  ACCOUNTS_SETTINGS: 'accounts:settings', // discount limits, bank accounts, receipt options
 
   // Customer portal (B5)
   PORTAL_ACCESS: 'portal:access',
@@ -85,6 +90,9 @@ const SALES_MANAGER = [
   P.LEADS_ASSIGN,
   P.PIPELINE_MANAGE,
   P.SITE_MANAGE,
+  P.BOOKINGS_READ_ALL,
+  P.BOOKINGS_OVERRIDE,
+  P.PLANS_MANAGE,
   P.BOOKINGS_CANCEL,
   P.RECEIPTS_CREATE,
   P.CHEQUES_MANAGE,

@@ -797,11 +797,23 @@ async function transition({
  * Generic transition for later phases (booking, allotment, cancellation…) — B4 calls this
  * inside its transaction. Reaching `to` from any state the machine allows.
  */
-export function transitionUnit({ orgId, unitId, from, to, set, ctx, action, meta, session }) {
+export function transitionUnit({
+  orgId,
+  unitId,
+  from,
+  to,
+  set,
+  ctx,
+  action,
+  meta,
+  session,
+  match,
+}) {
   return transition({
     orgId,
     unitId,
-    match: { status: { $in: from } },
+    // `match` narrows the from-state further (e.g. "held by this user, or hold expired").
+    match: match ?? { status: { $in: from } },
     from,
     to,
     set,
@@ -1005,6 +1017,20 @@ export async function getPublicUnit(orgId, id) {
   const project = await projects.getProject(orgId, u.projectId).catch(() => null);
   if (!project?.published) throw new NotFoundError('Unit not found');
   return { unit: u, project };
+}
+
+/** B4: the raw unit (lean) for pricing a booking, or 404. Pass `session` inside a transaction. */
+export async function getUnitForSale(orgId, id, { session } = {}) {
+  const u = await Unit.findOne({ orgId, _id: id })
+    .session(session ?? null)
+    .lean();
+  if (!u) throw new NotFoundError('Unit not found');
+  return u;
+}
+
+/** B4: price breakdown of a unit with the given rate card (null = not priceable). */
+export function priceForSale(unit, pricing) {
+  return priceUnit(unit, pricing);
 }
 
 /** CRM: Map id → { id, code, projectId, kind } for the given unit ids (deleted included). */

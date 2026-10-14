@@ -9,10 +9,10 @@
 
 | | |
 |---|---|
-| **Current phase** | **B2b + F3b code complete** (site content CMS, SEO, construction updates). B3 + F4 code complete (owner testing with `seed:crm`) |
-| **Last completed** | B2b + F3b: Website editor (Home/About sections, draft → preview → publish, 20 versions), page/project/site-wide SEO with search preview and focus-keyword checks, construction updates with photos (dashboard + project page + home) — 2026-10-14 |
-| **Next step** | Owner: backend `npm run seed -- --sync-indexes`, `npm test` (new `site.test.js`), `npm run seed:demo -- --reset` (adds construction updates); same `REVALIDATE_SECRET` in both `.env` files (preview + revalidation); then fill Website › Home/About with real content and publish. Then **B4** (bookings & accounts) after D1 |
-| **Blocker** | None. D1/D3/D4 still open (not blocking F2/F3) |
+| **Current phase** | **B4 code complete** (B4.1 + B4.2 + B4.3: bookings, receipts, cheques, stages, transfer, cancellation, reports, QR documents + PDF). Next: **F5** |
+| **Last completed** | B4.2 + B4.3 together (owner request) + fix of the 4 failing B4.1 tests — 2026-10-14 |
+| **Next step** | Owner: `npm install` (downloads Chrome for PDFs, ~170 MB once), `npm run seed -- --sync-indexes`, `npm test` (incl. `bookings.test.js` + new `b4-2-3.test.js`). Then **F5** (booking wizard, schedule & ledger, receipt entry, cheque register, document print/PDF, `/verify/[token]`, dues & collection reports) |
+| **Blocker** | None. D3/D4 still open (not blocking) |
 
 ---
 
@@ -20,12 +20,12 @@
 
 | # | Topic | Proposed default | Needed by |
 |---|---|---|---|
-| D1 | PDF approach in v1 | One HTML template → A4 print page + Puppeteer PDF on the VPS (email attachment) + QR verify | Before B4 |
 | D2 | SMS gateway provider | Build `log` + BulkSMSBD + SSL Wireless drivers; the client's keys go in `.env` | When the client onboards (code ready in B3) |
 | D3 | Frontend hosting | Vercel (free, easiest) or the same Hostinger VPS (Next standalone + PM2). Code works in both | Before deploy |
 | D4 | v1/v2 split | See ARCHITECTURE §4 (proposed) | Before B2 |
 
 ## ✅ Resolved decisions
+- 2026-10-14: **B4 scope** (owner: "B4 scope OK" — all defaults accepted). **D1:** Puppeteer on the VPS, HTML templates owned by the backend (Bangla fonts local), the frontend print page loads the same HTML. **Q1:** cheque → unnumbered acknowledgement; receipt + allocation when it clears (bounce = fee, no reversal). **Q2:** booking money in the same step; manager may waive with a reason. **Q3:** discount cap executive 1 % / manager 3 % of the base price, admin none (settings). **Q4:** cancellation keeps 10 % of the amount paid (project setting), manager override with reason. **Q5:** transfer fee per project (default 0), no overdue dues. **Q6:** allotment by a manager, warning (not block) when the down payment is unpaid. **Q7:** receipt no. `LVR-2627-000123` → project `code`. **Q8:** receipt e-mail with PDF on, receipt SMS off (setting). **Q9:** B4.1 → B4.2 → B4.3, then F5. Extras accepted: company bank accounts, delay charge as a manual charge (auto penalty v2), statement of account as a QR document
 - 2026-10-14: **B2b + F3b scope** (owner accepted) — dashboard-managed SEO (site-wide + per page + per project, SERP preview); **focus keyword + on-page check** instead of `meta keywords`; page content as **fixed sections** (edit / show-hide / reorder, no free page builder); **draft → preview → publish**, last 20 versions kept; all proposed sections — Home: why us, track record, construction progress, testimonials, landowner JV band, approvals & partner banks, video tour, FAQ; About: story + milestones, mission/vision/values, chairman/MD message, leadership team, construction quality, completed projects, memberships & awards, CSR. People/testimonial/award sections start empty (hidden) — never invented content
 - 2026-10-13: **B3.2 defaults** (owner accepted) — auto-reply only for new website/Meta leads (not manual, not repeat enquiries), max 1 per phone per 24 h; SLA miss → one in-app notification to every manager (no SMS to managers); BN 70/67, EN 160/153 segments with a cost preview; Meta page token encrypted, nightly 48-hour reconcile. **Order:** B3.2 first, then the full F4. **F4 decisions:** saved views = preset views + filters in the URL (no backend); phone Kanban = one column at a time (tabs) + "Move to…" menu, drag on desktop
 - 2026-10-13: **B3 scope** (owner) — new leads **round-robin** among active sales executives (per-project teams optional; `manual` mode = unassigned queue); first-response **SLA 30 office minutes** (09:00–20:00 Dhaka, Friday off, editable) with manager escalation; customer **auto-reply SMS on** (editable BN/EN text, can be switched off); B3 split into **B3.1** (core CRM + website form) and **B3.2** (SMS, auto-reply, SLA escalation, Meta Lead Ads)
@@ -145,16 +145,27 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] F3b.1 Dashboard: page editor (sections, reorder, show/hide, reset to default, preview, publish, history), SEO editor (SERP preview, length + focus-keyword checks), site-wide SEO settings, project SEO tab, construction updates per project
 - [x] F3b.2 Public: Home + About rebuilt from sections (new sections above), metadata + verification + JSON-LD (Organization sameAs, FAQPage) from the SEO settings, preview mode, construction timeline on the project page
 
-### B4: Sales & Accounts (Backend)
-- [ ] Booking (unit lock + price snapshot, transaction)
-- [ ] Plan templates + schedule generator
-- [ ] Receipts + allocations + reversals + gapless counter
-- [ ] Cheque/PDC register + bounce handling
-- [ ] Transfer & cancellation (deduction policy)
-- [ ] Documents: verifyToken + hash, `/verify/:token` public API
-- [ ] PDF job (Puppeteer pool) from the HTML templates + email attachment
-- [ ] Discount limit per role
-- [ ] Tests: allocation math, rounding, bounce reversal
+### B4: Sales & Accounts (Backend) — scope locked 2026-10-14
+**B4.1 — bookings & receipts (code complete 2026-10-14)**
+- [x] Customers (buyer profile, joint applicants, private NID/photo media, visibility by seller)
+- [x] Project `code` + `salesPolicy`; accounts settings (discount caps, booking money, back-dating, notify); company bank accounts
+- [x] Plan templates + schedule generator (exact totals, rounding into the last installment, month-end clamping) + custom schedule (`bookings:override`)
+- [x] Booking in one transaction (unit lock from available / own hold / any hold for managers, price snapshot, discount cap, booking money receipt, lead → won), preview, `Idempotency-Key`
+- [x] Receipts: oldest-first allocation, advance, overpayment guard, gapless number per project per fiscal year, `Idempotency-Key`; reversal (admin); append-only ledger + integrity check; receipt SMS (setting, off)
+- [~] Tests: unit 28 new ✔ in sandbox; integration `tests/integration/bookings.test.js` (15 cases incl. 5-way booking race and 4 parallel receipts) written — owner runs `npm test`
+
+**B4.2 — cheques, transfer, cancellation, reports (code complete 2026-10-14)**
+- [x] Cheque/PDC register (`received → deposited → cleared | bounced → re-deposit | returned`; acknowledgement, numbered receipt on clearing, bounce fee + alerts, duplicate guard, open cheques cap the amount) + booking money by cheque
+- [x] Transfer (overdue/open-cheque guards, transfer fee or waiver, holder history, documents re-issued) & cancellation (policy deduction, manager override with reason, unit back on sale, refunds in parts with gapless `LVR-RF-` refs)
+- [x] Allotment (warnings, not blocks) / registration (deed no.) / handover — unit status follows
+- [x] Reschedule (contract total kept, paid items locked), call a milestone, manual charges + waiver
+- [x] Reports: dues + aging buckets, collections (mode / project / day or month, refunds, reversals), PDC register
+- [~] Tests: unit ✔ in sandbox; integration `tests/integration/b4-2-3.test.js` written — owner runs `npm test`
+
+**B4.3 — documents (code complete 2026-10-14)**
+- [x] `documents` module: frozen snapshot + SHA-256 hash, verify token, valid → void, one valid document per record, back-fill
+- [x] Backend HTML templates (receipt, booking form, allotment letter, statement, cancellation/transfer letters, cheque acknowledgement), BN/EN, embedded OFL fonts (Hind Siliguri, Plus Jakarta Sans, Playfair Display), QR, VOID watermark
+- [x] PDF via Puppeteer (shared browser, 2 pages, timeout, cached per language in private storage) + receipt e-mail with the PDF (job `documents.emailReceipt`) + public `GET /public/verify/:token` (masked)
 
 ### F5: Accounts UI + Documents (Frontend)
 - [ ] Booking wizard
@@ -193,6 +204,35 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 ---
 
 ## 📝 Session Log (newest first)
+
+### 2026-10-14 (14): B4.1 test fixes + B4.2 + B4.3 together
+- **Owner's `npm test`:** 309 passed, 4 failed — all in my new `bookings.test.js`, none in the booking code: three tests read `Unit`/`Lead` with `findById` (no `orgId` → the tenant guard rightly threw), one used a 5-character phone that the schema rejects before the service (422 vs the expected 400). Fixed in the test.
+- **Owner request:** B4.2 and B4.3 in one go.
+- **B4.2:**
+  - `accounts/cheque.model.js` (+ service helpers): register with history, atomic status changes, duplicate open cheque guard (unique partial index bank + number), PDC flag, report query. `bookings/cheque.service.js`: receive (stale > 6 months refused, open cheques count against the balance), deposit / re-deposit, clear (receipt + allocation + cheque → cleared in one transaction), bounce (fee charge from the new setting `chequeBounceFee`, `cheque.bounced` notification to the seller + cheque managers), return. Booking money by cheque in `POST /bookings`.
+  - `bookings/lifecycle.service.js`: allot (warnings `BOOKING_MONEY_UNPAID` / `DOWN_PAYMENT_UNPAID`), register (deed no., warning `DUES_OUTSTANDING`), handover — unit status moves in the same transaction; charges + waiver; call an item; reschedule (total kept, paid items locked, before/after audited); transfer (overdue + open-cheque guards, fee or waiver, `holders[]` history); cancel (policy deduction, override needs `bookings:override` + reason, unit cancelled → available) + preview; refunds (ledger type `refund`, refs `LVR-RF-00001`).
+  - `bookings/report.service.js`: dues + aging buckets (1–30 / 31–60 / 61–90 / 90+), collections (`$facet`, Dhaka-time grouping), PDC register.
+  - Booking model: `stage`, `allotment`, `registration`, `handover`, `holders`, `cancellation`, schedule `chargeKind`; ledger integrity now ignores refunds (they are not allocated).
+- **B4.3:**
+  - `documents/` module: `Document` (snapshot, hash, token, void, PDF cache; immutable otherwise), service (issue, void, list, render, PDF, public verify with masked holder name), `render/templates.js` (7 A4 templates, BN/EN, escaped), `render/fonts.js` (base64 @font-face from Fontsource OFL packages), `pdf.js` (Puppeteer pool, network blocked inside the page, closed on shutdown).
+  - `bookings/documentData.js` builds every snapshot (bookings → documents, one-way) and issues after commits; `bookings/document.routes.js` (list + back-fill, statement, HTML, PDF, public verify). Job `documents.emailReceipt` + e-mail template `receipt` (BN/EN).
+  - New deps: `puppeteer@25.12.0`, `qrcode@1.5.4`, `@fontsource/hind-siliguri`, `@fontsource/plus-jakarta-sans`, `@fontsource/playfair-display` (5.3.0). New env (optional): `PUBLIC_SITE_URL`, `PDF_CHROME_PATH`, `PDF_NO_SANDBOX`, `PDF_TIMEOUT_MS`.
+- **Verified in sandbox:** ESLint, `npm run check` (208 files), app boot (171 routes, no import cycles), 182 unit tests (14 new: hashing, masking, templates incl. escaping/void/Bangla digits, aging buckets, B4.2 schemas, model validation, document immutability). **Real PDFs rendered** through the actual templates + headless Chromium for all types in BN and EN, checked as images: Bangla conjuncts shape correctly, tables repeat headers across pages, VOID watermark shows.
+- **Not verified:** anything needing MongoDB → owner runs `npm test` (`b4-2-3.test.js`, 16 cases: cheque at booking → clear, PDC register + bounce + re-deposit, stages, charges/call/reschedule, transfer, cancellation + refunds, open-cheque block, reports, documents HTML/PDF/verify/void/statement). The PDF test needs the Chrome that `npm install` downloads.
+- Known limits: delay charge is manual (auto penalty v2); registration/handover warn but don't block on dues; documents are issued after the commit (back-filled on the next document list if that step failed).
+
+### 2026-10-14 (13): B4 scope locked + B4.1 — customers, plans, bookings, receipts
+- **Scope:** owner accepted every B4 default and D1 (see Resolved decisions). B4 split into B4.1 / B4.2 / B4.3. ARCHITECTURE §3/§5/§6.6 updated (cheque receipt on clearing, booking rules, backend-owned PDF templates).
+- **New modules:**
+  - `customers/` — `Customer` (customer no. `C-000001`, NID unique, private media only, `accessUserIds` for executive visibility), CRUD + search (name, number, NID/passport, phone in any form).
+  - `bookings/` — `PaymentPlan` (spec validated by `zPlanSpec`), `schedule.js` (pure generator + custom schedule), `Booking` (price snapshot, embedded schedule with a `paid` cache, one active booking per unit — unique partial index), `booking.service.js` (preview, create, edit nominees/note, add payment, reverse, ledger), routes `/bookings`, `/payment-plans`.
+  - `accounts/` — `Counter` (gapless numbers inside the transaction; counters pre-created outside it so racing inserts can't hit a duplicate key), `AccountSettings`, `BankAccount`, `Receipt` (immutable except the reversal stamp), `LedgerEntry` (append-only), `allocation.js` (pure), receipt SMS, routes `/receipts`, `/accounts`.
+- **Shared:** `shared/utils/money.js` (lakh/crore format, amount in words EN + BN, BigInt `bpsOf`), `shared/utils/dhakaDate.js` (Dhaka calendar dates, month clamping, fiscal year), `shared/middleware/idempotency.js`.
+- **Touched:** permissions (`bookings:read_all`, `bookings:override`, `bookings:discount_unlimited`, `plans:manage`, `accounts:settings`), `projects` (`code`, `salesPolicy`, `projectSummaries` returns `code`), `units.transitionUnit` (optional `match`), `getUnitForSale`/`priceForSale`, `leads.markLeadWon` + activity type `booking`, `media.assertPrivateMedia`, SMS purpose `receipt`, routes, `seed --sync-indexes` (8 new collections), `seed:demo` (project codes LVR/UGC/PSC/DLS; `--reset` refuses when bookings exist — receipts are permanent).
+- **Design notes:** booking = one transaction (booking no. → unit `booked` via the atomic status filter → booking → receipt + ledger → customer access → audit); side effects after commit. Receipts re-read the booking inside the transaction and write the schedule cache with a version check. Executives can take booking money at booking but not later receipts (`receipts:create` is manager-level).
+- **Verified in sandbox:** ESLint, Prettier (new files), `npm run check` (192 files), app boot with all routes, 168 unit tests (28 new: amount in words EN/BN incl. crore > 99, lakh grouping, BigInt bps, Dhaka dates + fiscal year, schedule totals + 2,000-plan fuzz, custom schedule rules, allocation order/partial/advance/overpayment, totals + statuses, request schemas, permission bundles, discount caps, Idempotency-Key, receipt/ledger immutability, booking document validation).
+- **Not verified:** anything needing MongoDB (the sandbox still can't download `mongod`) → owner runs `npm test` (`bookings.test.js`: customers, preview, booking + lead won, booking money rules, discount caps, held units, 5-way race, idempotency, guards, allocation, 4 parallel receipts, idempotent receipt, reversal, register scoping, settings/plans).
+- Known limits: receipt e-mail/PDF waits for B4.3; cheques (incl. at booking) wait for B4.2; co-applicants are fixed at booking (changes go through transfer in B4.2).
 
 ### 2026-10-14 (12): Fix — `seed:demo --reset` failed on floor plans
 - **Owner report:** `npm run seed:demo -- --reset` printed repeated "Could not queue revalidation … Unknown job type: frontend.revalidate" warnings, then stopped with a ZodError (`mediaId` undefined) at the first floor plan.

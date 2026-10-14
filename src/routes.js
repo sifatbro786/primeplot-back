@@ -16,6 +16,19 @@ import integrationRoutes from '#modules/integrations/integration.routes.js';
 import siteRoutes from '#modules/site/site.routes.js';
 import { projectUpdatesRouter, updatesRouter } from '#modules/construction/construction.routes.js';
 import metaWebhookRoutes from '#modules/meta/metaWebhook.routes.js';
+import customerRoutes from '#modules/customers/customer.routes.js';
+import { bookingRouter, planRouter } from '#modules/bookings/booking.routes.js';
+import { accountsRouter, receiptRouter } from '#modules/accounts/accounts.routes.js';
+import {
+  bookingActions,
+  chequeRouter,
+  reportRouter,
+} from '#modules/bookings/lifecycle.routes.js';
+import {
+  bookingDocuments,
+  documentRouter,
+  verifyRouter,
+} from '#modules/bookings/document.routes.js';
 import internalRoutes from '#jobs/jobs.routes.js';
 import { limits } from '#shared/middleware/rateLimit.js';
 import { originGuard } from '#shared/middleware/originGuard.js';
@@ -49,6 +62,17 @@ api.use('/leads', leadRoutes);
 api.use('/notifications', notificationRoutes);
 api.use('/integrations', integrationRoutes);
 api.use('/site', siteRoutes);
+api.use('/customers', customerRoutes); // B4
+api.use('/bookings', bookingRouter);
+api.use('/bookings', bookingActions); // B4.2
+api.use('/bookings', bookingDocuments); // B4.3
+api.use('/cheques', chequeRouter);
+api.use('/reports', reportRouter);
+api.use('/documents', documentRouter);
+api.use('/payment-plans', planRouter);
+api.use('/receipts', receiptRouter);
+api.use('/accounts', accountsRouter);
+api.use('/public/verify', verifyRouter); // B4.3 QR verification — not cached
 api.use('/public/leads', publicLeadRoutes); // website enquiry form — before the cached catalogue
 api.use('/public', publicRoutes); // website catalogue — no auth
 

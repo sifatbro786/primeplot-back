@@ -64,7 +64,7 @@ PrimePlot is a real-estate management and CRM platform for Bangladeshi real-esta
 - Customer Portal: units, schedule, dues, receipts, documents, plus **SSLCommerz online payment**
 - Manual payment channels first-class (cash, cheque/PDC, bank transfer, pay order); the client can upload a **bank-transfer slip** in the portal, staff verify it, and a verified slip becomes a normal receipt *(D5, accepted 2026-10-12)*
 - Reminder engine (SMS + email)
-- Discount limit per role (permission-based; not a full approval workflow)
+- Discount limit per role (a per-role cap in accounts settings, % of the base price; `bookings:discount_unlimited` lifts it; not a full approval workflow) *(B4, owner decision 2026-10-14)*
 - Milestone-type schedule items that staff mark due manually
 - Basic audit log
 - Basic analytics
@@ -101,7 +101,8 @@ PrimePlot is a real-estate management and CRM platform for Bangladeshi real-esta
 - **Ledger is append-only:**
   - Corrections are made only with reversal entries.
   - Receipt → allocations against the oldest unpaid schedule items. This handles partial and advance payments.
-- **Cheque/PDC:** `received → deposited → cleared | bounced`. A bounce reverses the allocations and adds a fee.
+- **Cheque/PDC** *(owner decision 2026-10-14, Q1 = A)*: `received → deposited → cleared | bounced`. A cheque in hand gets an unnumbered **acknowledgement**; the numbered receipt and the allocation are made only when it **clears**. A bounce therefore reverses nothing — it adds a bounce fee to the schedule and notifies staff.
+- **Booking** *(owner decisions 2026-10-14)*: booking money is taken in the same step (`bookings:override` may waive it with a reason); a project needs a short `code` (document numbers `LVR-BK-00045`, `LVR-2627-000123`); allotment is a manager action (warning, not a block, when the down payment is unpaid); cancellation keeps `project.salesPolicy.cancellationDeductionBps` (default 10 %) of the amount paid, manager may override with a reason; transfer adds `salesPolicy.transferFee` and needs no overdue dues.
 - **Receipt number:** gapless, per project, per fiscal year (July–June). Generated with an atomic `$inc` counter inside the transaction.
 - **Schedule rounding:** the rounding remainder goes into the last installment. The total must match the contract exactly.
 - Booking, receipt, cancellation and transfer each run in a **MongoDB transaction**.
@@ -197,13 +198,15 @@ PrimePlot is a real-estate management and CRM platform for Bangladeshi real-esta
 
 - Each document (receipt, booking form, allotment letter, etc.) has a `verifyToken` (random, unguessable) and a content hash.
 - The QR code points to `https://<frontend>/verify/<token>`. That public page shows the document's key information and a valid/invalid result.
-- **PDF in v1 (proposed, D1):**
-  - One HTML template per document, with embedded Bangla fonts. It is used two ways:
-    - (a) as the A4 print page (browser preview and print)
+- **PDF in v1 (D1, accepted 2026-10-14):**
+  - One HTML template per document, **owned by the backend**, with Bangla fonts served locally (OFL). It is used two ways:
+    - (a) the frontend's A4 print page loads the same HTML from the API (browser preview and print)
     - (b) rendered by **Puppeteer** on the VPS into a PDF (email attachment and download)
+  - Why backend-owned: print and PDF are identical, the stored hash matches, and making a PDF never depends on the frontend being up.
   - Puppeteer runs in a job: one shared browser, a page pool, and a timeout.
   - PDFKit and react-pdf are not used, because they break Bangla conjuncts.
   - Generated PDFs are stored through the storage adapter (private) along with their hash.
+  - *(B4.3, built)* Each document freezes a **snapshot** of everything it prints; `contentHash` = SHA-256 of the canonical JSON `{ type, number, snapshot }`. Status `valid → void` only (reversal, return, cancellation, transfer). The public verify response shows a masked holder name and no contact or ID data. Fonts are Fontsource OFL packages embedded as base64; the page loads nothing from the network.
 
 ### 6.7 Backend folder structure
 
@@ -217,7 +220,7 @@ primeplot-back/
 │  │  ├─ auth/ users/ organizations/ audit/
 │  │  ├─ projects/ units/ floorplans/
 │  │  ├─ leads/ pipeline/ activities/
-│  │  ├─ bookings/ accounts/ documents/
+│  │  ├─ customers/ bookings/ accounts/ documents/
 │  │  ├─ portal/ notifications/ reminders/
 │  │  ├─ media/ analytics/
 │  │  └─ <module>/ <name>.routes.js .controller.js .service.js .model.js .validation.js

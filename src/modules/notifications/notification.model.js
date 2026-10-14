@@ -10,6 +10,7 @@ export const NOTIFICATION_TYPES = Object.freeze([
   'task.due', // your follow-up is due
   'lead.sla_breached', // a new lead waited past its first-response time (to managers)
   'integration.error', // Meta / SMS stopped working (to admins)
+  'cheque.bounced', // B4.2: a customer's cheque bounced (to the seller and cheque managers)
 ]);
 
 const TTL_DAYS = 90;

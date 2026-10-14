@@ -2,7 +2,7 @@
   "name": "primeplot-back",
   "version": "0.1.0",
   "private": true,
-  "description": "PrimePlot \u2014 Real Estate Management & CRM API",
+  "description": "PrimePlot — Real Estate Management & CRM API",
   "type": "module",
   "main": "server.js",
   "engines": {
@@ -33,6 +33,9 @@
     "check": "node scripts/check-syntax.js"
   },
   "dependencies": {
+    "@fontsource/hind-siliguri": "^5.3.0",
+    "@fontsource/playfair-display": "^5.3.0",
+    "@fontsource/plus-jakarta-sans": "^5.3.0",
     "compression": "^1.8.2",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
@@ -47,6 +50,8 @@
     "nodemailer": "^10.1.0",
     "pino": "^10.4.0",
     "pino-http": "^11.0.0",
+    "puppeteer": "^25.12.0",
+    "qrcode": "^1.5.4",
     "sharp": "^0.35.5",
     "socket.io": "^4.8.4",
     "zod": "^4.6.5"

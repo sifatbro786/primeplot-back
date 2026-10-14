@@ -115,6 +115,15 @@ const schema = z.object({
     .string()
     .regex(/^v\d{2}\.0$/, 'META_GRAPH_VERSION looks like v25.0')
     .default('v25.0'),
+
+  // Documents (B4.3): PDFs are printed by Chrome through Puppeteer. `npm install` downloads a
+  // matching Chrome; set PDF_CHROME_PATH to use an installed one instead (VPS: /usr/bin/chromium).
+  PDF_CHROME_PATH: optionalStr,
+  // Needed when Chrome runs as root on a VPS (no user namespaces). Leave false on a desktop.
+  PDF_NO_SANDBOX: bool(false),
+  PDF_TIMEOUT_MS: z.coerce.number().int().min(5_000).max(120_000).default(30_000),
+  // Public address of the website — printed in QR codes (<site>/verify/<token>). Default CLIENT_URL.
+  PUBLIC_SITE_URL: z.url().optional(),
 });
 
 /** Cross-field rules. */
@@ -175,5 +184,6 @@ export const env = Object.freeze({
     revalidate: Boolean(e.REVALIDATE_SECRET),
     metaLeads: Boolean(e.META_APP_SECRET && e.META_VERIFY_TOKEN),
   }),
+  siteUrl: (e.PUBLIC_SITE_URL ?? e.CLIENT_URL).replace(/\/+$/, ''),
   revalidateUrl: e.FRONTEND_REVALIDATE_URL ?? `${e.CLIENT_URL.replace(/\/+$/, '')}/api/revalidate`,
 });

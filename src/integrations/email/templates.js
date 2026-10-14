@@ -105,6 +105,33 @@ const TEMPLATES = {
       text: `প্রিয় ${d.name},\n\n${d.when} তারিখে আপনার পাসওয়ার্ড পরিবর্তন করা হয়েছে। এটি আপনি না করে থাকলে অ্যাডমিনের সাথে যোগাযোগ করুন।`,
     }),
   },
+  // B4.3 — sent with the receipt PDF attached (documents.emailReceipt job).
+  receipt: {
+    en: (d) => ({
+      subject: `Money receipt ${d.receiptNo} — ${d.orgName}`,
+      body:
+        p(`Dear ${esc(d.name)},`) +
+        p(
+          `Thank you — we have received <b>Tk ${esc(d.amount)}</b> on ${esc(d.date)} for booking ` +
+            `${esc(d.bookingNo)} (${esc(d.unit)}, ${esc(d.project)}).`,
+        ) +
+        p(`Your money receipt <b>${esc(d.receiptNo)}</b> is attached as a PDF. Its QR code can be scanned to check it.`),
+      button: { label: 'Verify the receipt', url: d.verifyUrl },
+      text: `Dear ${d.name},\n\nWe have received Tk ${d.amount} on ${d.date} for booking ${d.bookingNo} (${d.unit}, ${d.project}). Receipt ${d.receiptNo} is attached.\n\nVerify: ${d.verifyUrl}`,
+    }),
+    bn: (d) => ({
+      subject: `মানি রসিদ ${d.receiptNo} — ${d.orgName}`,
+      body:
+        p(`প্রিয় ${esc(d.name)},`) +
+        p(
+          `ধন্যবাদ — বুকিং ${esc(d.bookingNo)} (${esc(d.unit)}, ${esc(d.project)})-এর জন্য ${esc(d.date)} তারিখে ` +
+            `<b>৳${bnNum(esc(d.amount))}</b> গ্রহণ করা হয়েছে।`,
+        ) +
+        p(`আপনার মানি রসিদ <b>${esc(d.receiptNo)}</b> PDF হিসেবে সংযুক্ত। রসিদের QR কোড স্ক্যান করে এটি যাচাই করা যাবে।`),
+      button: { label: 'রসিদ যাচাই করুন', url: d.verifyUrl },
+      text: `প্রিয় ${d.name},\n\nবুকিং ${d.bookingNo}-এর জন্য ৳${bnNum(d.amount)} গ্রহণ করা হয়েছে। রসিদ ${d.receiptNo} সংযুক্ত।\n\nযাচাই: ${d.verifyUrl}`,
+    }),
+  },
 };
 
 export const EMAIL_TEMPLATES = Object.freeze(Object.keys(TEMPLATES));
