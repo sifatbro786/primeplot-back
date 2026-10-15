@@ -8,7 +8,7 @@ export const CHANNEL_STATUSES = Object.freeze(['queued', 'skipped', 'off']);
 const channelSchema = new mongoose.Schema(
   {
     status: { type: String, enum: CHANNEL_STATUSES, required: true },
-    reason: { type: String, maxlength: 60, default: null }, // no_email, foreign_number, rule_off …
+    reason: { type: String, maxlength: 60, default: null }, // no_email, not_bd_mobile, same_phone, rule_off …
     smsId: { type: ObjectId, ref: 'SmsMessage', default: null },
   },
   { _id: false },
@@ -51,6 +51,22 @@ const reminderLogSchema = new mongoose.Schema(
     locale: { type: String, enum: ['bn', 'en'], default: 'bn' },
     sms: { type: channelSchema, required: true },
     email: { type: channelSchema, required: true },
+    // Joint buyers who got the same reminder (when `reminders.coApplicants` is on).
+    coApplicants: {
+      type: [
+        new mongoose.Schema(
+          {
+            customerId: { type: ObjectId, ref: 'Customer', required: true },
+            name: { type: String, maxlength: 160 },
+            locale: { type: String, enum: ['bn', 'en'], default: 'bn' },
+            sms: { type: channelSchema, required: true },
+            email: { type: channelSchema, required: true },
+          },
+          { _id: false },
+        ),
+      ],
+      default: [],
+    },
     by: { type: ObjectId, ref: 'User', default: null }, // manual reminders
     byName: { type: String, maxlength: 120, default: null },
   },

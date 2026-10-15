@@ -2,11 +2,19 @@ import { z } from 'zod';
 import { zid } from '#shared/middleware/validate.js';
 import { cursorQuery } from '#shared/utils/pagination.js';
 import { RECEIPT_MODES } from './receipt.model.js';
+import { REMINDER_KINDS, REMINDER_TEXT_MAX } from '#modules/reminders/reminderText.js';
 
 const MAX_MONEY = 10_000_000_000_000; // ৳1,000 crore in poisha
 export const zAmount = z.number().int().min(1).max(MAX_MONEY);
 const zBps = z.number().int().min(0).max(10_000);
 const text = (max) => z.string().trim().max(max);
+const zReminderText = z
+  .string()
+  .trim()
+  .max(REMINDER_TEXT_MAX)
+  .nullable()
+  .transform((v) => (v ? v : null))
+  .refine((v) => v === null || v.length >= 10, 'At least 10 characters (or leave empty)');
 
 /** Modes accepted from staff now; cheque arrives with the register (B4.2), online/slip in B5. */
 export const STAFF_MODES = Object.freeze(['cash', 'bank_transfer', 'pay_order']);
@@ -102,6 +110,23 @@ export const zSettingsPatch = z
       .object({
         enabled: z.boolean().optional(),
         sendHour: z.number().int().min(7).max(21).optional(),
+        coApplicants: z.boolean().optional(),
+        // Replaces all six texts; null / '' = the built-in text. Length + placeholders are
+        // checked in the service (they need the company name).
+        texts: z
+          .object(
+            Object.fromEntries(
+              REMINDER_KINDS.map((k) => [
+                k,
+                z
+                  .object({ bn: zReminderText, en: zReminderText })
+                  .strict()
+                  .default({ bn: null, en: null }),
+              ]),
+            ),
+          )
+          .strict()
+          .optional(),
         rules: z
           .array(
             z

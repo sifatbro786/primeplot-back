@@ -403,3 +403,45 @@ export async function backfillDocuments(org, booking) {
     }
   }
 }
+
+/**
+ * After a manual void: issue the same paper again from today's records (the reason to void is
+ * usually wrong details that staff have just corrected). Returns the new document, or null when
+ * that paper no longer applies (booking cancelled, receipt reversed, cheque returned, a later
+ * transfer) or is dated by nature (statements — issue a new one instead).
+ */
+export async function reissueDocument(org, booking, doc, user) {
+  const orgId = org._id;
+  const same = (a, b) => String(a) === String(b);
+  switch (doc.type) {
+    case 'booking_form':
+      return booking.status === 'active' ? issueBookingForm(org, booking, user) : null;
+    case 'allotment_letter':
+      return booking.status === 'active' && booking.allotment
+        ? issueAllotmentLetter(org, booking, user)
+        : null;
+    case 'cancellation_letter':
+      return booking.cancellation ? issueCancellationLetter(org, booking, user) : null;
+    case 'receipt': {
+      const r = await accounts.getReceiptDoc(orgId, doc.refId).catch(() => null);
+      return r?.status === 'valid' && same(r.bookingId, booking._id)
+        ? issueReceiptDoc(org, booking, r, user, { email: false })
+        : null;
+    }
+    case 'cheque_ack': {
+      const c = await accounts.getChequeDoc(orgId, doc.refId).catch(() => null);
+      return c && c.status !== 'returned' && same(c.bookingId, booking._id)
+        ? issueChequeAck(org, booking, c, user)
+        : null;
+    }
+    case 'transfer_letter': {
+      // Only the latest transfer: its letter names the current holder and number TR-n.
+      const last = booking.holders?.at(-1);
+      return last && same(last._id, doc.refId)
+        ? issueTransferLetter(org, booking, last, user)
+        : null;
+    }
+    default:
+      return null; // statement
+  }
+}

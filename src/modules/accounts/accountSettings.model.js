@@ -44,6 +44,24 @@ const accountSettingsSchema = new mongoose.Schema(
     reminders: {
       enabled: { type: Boolean, default: true },
       sendHour: { type: Number, min: 7, max: 21, default: 10 }, // Dhaka time, not before
+      // Co-applicants (joint buyers) get the same reminder too — off until the owner turns it on.
+      coApplicants: { type: Boolean, default: false },
+      // The company's own SMS text per kind and language; null = built-in (reminderText.js).
+      texts: {
+        type: new mongoose.Schema(
+          Object.fromEntries(
+            ['upcoming', 'today', 'overdue'].map((k) => [
+              k,
+              {
+                bn: { type: String, maxlength: 480, default: null },
+                en: { type: String, maxlength: 480, default: null },
+              },
+            ]),
+          ),
+          { _id: false },
+        ),
+        default: () => ({}),
+      },
       rules: {
         type: [
           new mongoose.Schema(

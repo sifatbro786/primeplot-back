@@ -52,6 +52,7 @@ export const P = Object.freeze({
   CHEQUES_MANAGE: 'cheques:manage',
   PAYMENT_SLIPS_VERIFY: 'payment_slips:verify',
   DOCUMENTS_ISSUE: 'documents:issue',
+  DOCUMENTS_VOID: 'documents:void', // cancel an issued paper by hand (admin), with a reason
   REPORTS_READ: 'reports:read',
   ACCOUNTS_SETTINGS: 'accounts:settings', // discount limits, bank accounts, receipt options
 

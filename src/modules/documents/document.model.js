@@ -20,7 +20,7 @@ export const DOCUMENT_TYPES = Object.freeze([
  * { type, number, snapshot }. The page and the PDF are rendered from the snapshot only, so a
  * later edit to a customer or project never changes an issued document.
  *
- * Only `status: valid → void` (+ reason) and the cached PDFs may change afterwards.
+ * Only `status: valid → void` (+ reason, who, the replacement) and the cached PDFs may change.
  * One VALID document per (type, refId); voiding one allows a fresh issue (e.g. after transfer).
  */
 const pdfSchema = new mongoose.Schema(
@@ -48,6 +48,11 @@ const documentSchema = new mongoose.Schema(
     status: { type: String, enum: ['valid', 'void'], default: 'valid' },
     voidedAt: { type: Date, default: null },
     voidReason: { type: String, maxlength: 300, default: null },
+    // Set when staff voided it by hand (system voids — reversal, transfer … — leave it null).
+    voidedBy: { type: ObjectId, ref: 'User', default: null },
+    voidedByName: { type: String, maxlength: 120, default: null },
+    // The corrected copy issued in its place (manual void), if any.
+    replacedBy: { type: ObjectId, ref: 'Document', default: null },
     issuedBy: { type: ObjectId, ref: 'User', default: null },
     issuedByName: { type: String, maxlength: 120, default: null },
     pdf: {
@@ -66,7 +71,16 @@ documentSchema.index(
 );
 documentSchema.index({ orgId: 1, bookingId: 1, createdAt: -1 });
 
-const MUTABLE = new Set(['status', 'voidedAt', 'voidReason', 'pdf', 'updatedAt']);
+const MUTABLE = new Set([
+  'status',
+  'voidedAt',
+  'voidReason',
+  'voidedBy',
+  'voidedByName',
+  'replacedBy',
+  'pdf',
+  'updatedAt',
+]);
 const immutable = (what) =>
   new AppError(`Issued documents are immutable (${what})`, {
     statusCode: 500,

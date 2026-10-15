@@ -8,6 +8,7 @@ import { authenticate, authorize, authorizeAny } from '#modules/auth/auth.middle
 import { auditContext, audit } from '#modules/audit/audit.service.js';
 import { getVisibleBooking } from '#modules/bookings/booking.service.js';
 import * as reminders from './reminder.service.js';
+import { REMINDER_KINDS, REMINDER_TEXT_MAX } from './reminderText.js';
 
 /**
  * /api/v1/reminders — installment reminders (B5.3). Rules and the send hour live in accounts
@@ -42,6 +43,27 @@ reminderRouter.get(
 reminderRouter.get('/preview', manage, async (req, res) => {
   ok(res, await reminders.runReminders(req.orgId, { dryRun: true }));
 });
+
+/**
+ * Live length/cost of a reminder text for the dashboard editor (nothing is sent). Empty text →
+ * the built-in one. Same people who may edit the texts (managers or accounts settings).
+ */
+reminderRouter.post(
+  '/sms-preview',
+  authorizeAny(P.REMINDERS_MANAGE, P.ACCOUNTS_SETTINGS),
+  validate({
+    body: z
+      .object({
+        kind: z.enum(REMINDER_KINDS),
+        locale: z.enum(['bn', 'en']),
+        text: z.string().max(REMINDER_TEXT_MAX).optional(),
+      })
+      .strict(),
+  }),
+  async (req, res) => {
+    ok(res, reminders.previewReminderSms(req.org, req.valid.body));
+  },
+);
 
 /** Run now, ignoring the send hour (still once per booking/rule/due date). */
 reminderRouter.post('/run', manage, async (req, res) => {

@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { env } from '#config/env.js';
 import { logger } from '#config/logger.js';
 import { P } from '#shared/auth/permissions.js';
 import { BadRequestError, ConflictError, NotFoundError } from '#shared/errors/AppError.js';
@@ -7,6 +8,14 @@ import { fiscalYear, parseDhakaDate, toDhakaDate } from '#shared/utils/dhakaDate
 import { amountInWords, formatTaka } from '#shared/utils/money.js';
 import { cursorFilter, cursorPage } from '#shared/utils/pagination.js';
 import { audit } from '#modules/audit/audit.service.js';
+import { Organization } from '#modules/organizations/organization.model.js';
+import {
+  checkReminderSms,
+  DEFAULT_REMINDER_TEXTS,
+  REMINDER_KINDS,
+  REMINDER_MAX_SEGMENTS,
+  reminderTextsOf,
+} from '#modules/reminders/reminderText.js';
 import { queueSms } from '#modules/sms/sms.service.js';
 import { AccountSettings } from './accountSettings.model.js';
 import { BankAccount } from './bankAccount.model.js';
@@ -95,7 +104,47 @@ export function reminderSettingsOf(s) {
     email: x.email ?? true,
   }));
   rules.sort((a, b) => a.offsetDays - b.offsetDays);
-  return { enabled: r.enabled ?? true, sendHour: r.sendHour ?? 10, rules };
+  return {
+    enabled: r.enabled ?? true,
+    sendHour: r.sendHour ?? 10,
+    rules,
+    coApplicants: r.coApplicants ?? false,
+    texts: reminderTextsOf(r.texts), // null = built-in
+    defaultTexts: DEFAULT_REMINDER_TEXTS,
+  };
+}
+
+/** A portal booking link as long as the real one — for reminder length checks and previews. */
+export const sampleBookingLink = (locale) =>
+  `${env.CLIENT_URL.replace(/\/+$/, '')}/${locale === 'en' ? 'en' : 'bn'}/portal/bookings/${'0'.repeat(24)}`;
+
+/** 400 when a custom reminder text is too long or uses an unknown placeholder. */
+async function assertReminderTexts(orgId, texts) {
+  const org = await Organization.findOne({ _id: orgId }).select('name nameBn').lean();
+  for (const kind of REMINDER_KINDS) {
+    for (const locale of ['bn', 'en']) {
+      const text = texts[kind]?.[locale];
+      if (!text) continue;
+      const path = `reminders.texts.${kind}.${locale}`;
+      const r = checkReminderSms(text, {
+        locale,
+        company: (locale === 'bn' && org?.nameBn) || org?.name || '',
+        link: sampleBookingLink(locale),
+      });
+      if (r.unknown.length) {
+        throw new BadRequestError(`Unknown placeholder: {${r.unknown[0]}}`, {
+          code: 'UNKNOWN_PLACEHOLDER',
+          details: [{ path, message: r.unknown.map((k) => `{${k}}`).join(', ') }],
+        });
+      }
+      if (r.segments > REMINDER_MAX_SEGMENTS) {
+        throw new BadRequestError(`Reminder text is ${r.segments} SMS long`, {
+          code: 'REMINDER_TEXT_TOO_LONG',
+          details: [{ path, message: `${r.segments} SMS (max ${REMINDER_MAX_SEGMENTS})` }],
+        });
+      }
+    }
+  }
 }
 
 const SETTINGS_PATHS = [
@@ -112,6 +161,7 @@ export async function updateAccountSettings({ orgId, patch, ctx }) {
   await getAccountSettings(orgId);
   const doc = await AccountSettings.findOne({ orgId });
   if (doc.__v !== patch.version) throw staleVersion();
+  if (patch.reminders?.texts) await assertReminderTexts(orgId, patch.reminders.texts);
   const before = doc.toObject();
   const { version: _v, ...input } = patch;
   for (const [k, v] of Object.entries(input)) {

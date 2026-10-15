@@ -4,7 +4,7 @@ import QRCode from 'qrcode';
 import { env } from '#config/env.js';
 import { logger } from '#config/logger.js';
 import { P } from '#shared/auth/permissions.js';
-import { NotFoundError } from '#shared/errors/AppError.js';
+import { ConflictError, NotFoundError } from '#shared/errors/AppError.js';
 import { storage } from '#integrations/storage/index.js';
 import { mediaDataUri } from '#modules/media/media.service.js';
 import { Document } from './document.model.js';
@@ -49,6 +49,8 @@ export function toDocument(d) {
     status: d.status,
     voidReason: d.voidReason ?? null,
     voidedAt: d.voidedAt ?? null,
+    voidedBy: d.voidedBy ? { id: String(d.voidedBy), name: d.voidedByName ?? null } : null,
+    replacedBy: d.replacedBy ? String(d.replacedBy) : null,
     verifyUrl: verifyUrlOf(d.verifyToken),
     contentHash: d.contentHash,
     issuedBy: d.issuedBy ? { id: String(d.issuedBy), name: d.issuedByName ?? null } : null,
@@ -117,13 +119,49 @@ export async function voidDocuments(orgId, filter, reason) {
       },
     },
   );
-  // Cached PDFs were printed without the VOID mark — drop them; the next print shows it.
-  for (const d of docs) {
-    for (const p of [d.pdf?.bn, d.pdf?.en].filter(Boolean)) {
-      await storage.remove({ key: p.key, visibility: 'private' }).catch(() => {});
-    }
-  }
+  for (const d of docs) await dropPdfs(d);
   return docs.length;
+}
+
+/** Cached PDFs were printed without the VOID mark — drop them; the next print shows it. */
+async function dropPdfs(d) {
+  for (const p of [d.pdf?.bn, d.pdf?.en].filter(Boolean)) {
+    await storage.remove({ key: p.key, visibility: 'private' }).catch(() => {});
+  }
+}
+
+/**
+ * Void ONE document by hand (staff, with a reason). 409 DOCUMENT_ALREADY_VOID when it is not
+ * valid any more (also when two people void it at the same moment). Returns the voided doc.
+ */
+export async function voidDocument({ orgId, id, reason, user }) {
+  const before = await Document.findOneAndUpdate(
+    { orgId, _id: oid(id), status: 'valid' },
+    {
+      $set: {
+        status: 'void',
+        voidedAt: new Date(),
+        voidReason: reason,
+        voidedBy: oid(user.id),
+        voidedByName: user.name ?? null,
+        pdf: { bn: null, en: null },
+      },
+    },
+    { returnDocument: 'before', lean: true },
+  );
+  if (!before) {
+    throw new ConflictError('This document is already void', { code: 'DOCUMENT_ALREADY_VOID' });
+  }
+  await dropPdfs(before);
+  return Document.findOne({ orgId, _id: before._id }).lean();
+}
+
+/** Point a voided document at the corrected copy issued in its place. */
+export async function markReplaced(orgId, id, replacementId) {
+  await Document.updateOne(
+    { orgId, _id: oid(id), status: 'void' },
+    { $set: { replacedBy: oid(replacementId) } },
+  );
 }
 
 export function findDocumentById(orgId, id) {
@@ -268,6 +306,8 @@ export async function verifyPublic(orgId, token) {
     valid: d.status === 'valid',
     status: d.status,
     voidReason: d.status === 'void' ? (d.voidReason ?? null) : null,
+    // A corrected copy exists (its own QR) — the holder should have received it.
+    replaced: d.status === 'void' && Boolean(d.replacedBy),
     type: d.type,
     number: d.number,
     date: mainDate(d.type, s),

@@ -836,6 +836,7 @@ All writes run in one MongoDB transaction with the booking's version check; a co
 | `bookings:cancel` (cancel, refunds) | | ✔ | ✔ |
 | `reports:read` | | ✔ | ✔ |
 | `documents:issue` (statement) | | ✔ | ✔ |
+| `documents:void` (void a paper by hand) *(2026-10-16)* | | | ✔ |
 
 Executives can still take **booking money by cheque** inside `POST /bookings` (`payment.mode: "cheque"`).
 
@@ -951,7 +952,8 @@ Wrong state → `409 CHEQUE_STATE_CONFLICT { status }`.
 | `GET /documents/:id` | read / read_all | Seller scope like receipts (404 otherwise) |
 | `GET /documents/:id/html?locale=bn\|en` | read / read_all | The A4 page, `text/html`, self-contained (fonts, QR, logo inlined; no scripts; CSP `default-src 'none'`). F5 shows it in an iframe and prints it |
 | `GET /documents/:id/pdf?locale=&download=1` | read / read_all | `application/pdf`, `inline` (or `attachment` with `download=1`) |
-| `GET /public/verify/:token` | none | Not cached. Unknown/malformed token → 404 |
+| `GET /public/verify/:token` | none | Not cached. Unknown/malformed token → 404. Void ones also carry `replaced: true` when a corrected copy was issued *(2026-10-16)* |
+| `POST /documents/:id/void` ★ | `documents:void` (admin) | *(2026-10-16)* Body `{ reason: 5–300 }`. Voids a **valid** paper by hand (`409 DOCUMENT_ALREADY_VOID`), drops its cached PDFs, audits `document.void`. Then re-issues the same paper from today's records when it still applies — booking form / allotment (active booking), cancellation letter, receipt (receipt still valid; money untouched, no e-mail), cheque ack (cheque not returned), transfer letter (latest transfer only); never a statement. → `200 { document: Document (void, replacedBy), reissued: Document\|null }` |
 
 ### Env (new, optional)
 `PUBLIC_SITE_URL` (QR base, default `CLIENT_URL`), `PDF_CHROME_PATH` (use an installed Chrome/Chromium; default: the one `npm install` downloaded), `PDF_NO_SANDBOX` (true only when Chrome runs as root on a VPS), `PDF_TIMEOUT_MS` (30000).
@@ -1105,12 +1107,15 @@ Notification `online_payment.review` → `online_payments:review` users `{ payme
 - Rules (accounts settings `reminders.rules`, default): `before_7` (−7), `due_day` (0), `overdue_3` (+3), `overdue_15` (+15) — days from the due date; each with `enabled`, `sms`, `email`. `reminders.enabled`, `reminders.sendHour` (Dhaka, default 10, 7–21).
 - Job `reminders.run` every 30 min; acts after `sendHour`. One message per (booking, rule, due date); several items due the same day are summed. A rule still fires up to 2 days late, never once the next rule's day arrives. Paid / cancelled / not-yet-called items never get one.
 - To the holder: SMS (BD mobile) + e-mail (template `installment_reminder`, with the portal link), in their language. Log: `reminder_logs` (unique → idempotent); SMS also in the SMS log with purpose `reminder` and `bookingId`.
+- *(2026-10-16)* `reminders.coApplicants` (default **false**): co-applicants get the same reminder in their own language, recorded in the same log row (`coApplicants[]`). A phone / e-mail already used for someone earlier in the list is skipped (`same_phone` / `same_email`).
+- *(2026-10-16)* `reminders.texts` — the company's own SMS per kind (`upcoming`, `today`, `overdue`) × `bn`/`en`; `null` = built-in (`defaultTexts` in the settings response). Placeholders `{name}` (first name), `{amount}` (taka, Bangla digits in BN), `{date}`, `{unit}` (unit + project), `{company}`, `{link}` (portal booking). The PATCH replaces all six (missing kinds → null; empty string → null; else 10–480 chars). Filled with long sample values it must fit **6 SMS** → `400 REMINDER_TEXT_TOO_LONG`; any other `{…}` → `400 UNKNOWN_PLACEHOLDER` (`details[].path` = `reminders.texts.<kind>.<bn|en>`). E-mail stays the standard template.
 
 | Endpoint | Permission | Notes |
 |---|---|---|
 | `GET /reminders/log?bookingId=&rule=&from=&to=&cursor=&limit=` | `reminders:manage` or `reports:read` | `ReminderLog[]` |
-| `GET /reminders/preview` | `reminders:manage` | What today's run would send (sends nothing): `{ today, planned, alreadySent, items: [{ bookingId, bookingNo, unitCode, customer, rule, kind, dueDate, amount, channels: { sms, email } }] }` |
+| `GET /reminders/preview` | `reminders:manage` | What today's run would send (sends nothing): `{ today, planned, alreadySent, items: [{ bookingId, bookingNo, unitCode, customer, rule, kind, dueDate, amount, channels: { sms, email }, coApplicants: [{ id, name, channels }] }] }` |
 | `POST /reminders/run` | `reminders:manage` | Run now (ignores the hour, still once each) → `{ today, planned, sent, alreadySent }` |
+| `POST /reminders/sms-preview` ★ | `reminders:manage` or `accounts:settings` | *(2026-10-16)* `{ kind, locale: bn\|en, text? ≤ 480 }` (empty → built-in) → `{ rendered, encoding, chars, segments, costPoisha, …, unknown: string[], maxSegments: 6, ok }` — filled with sample values; nothing is sent |
 | `POST /bookings/:id/remind` | `reminders:manage` or `receipts:create` (+ visible booking) | Everything due/overdue (or the next item) → `201 ReminderLog` (rule `manual`); once per booking per day (`409 ALREADY_REMINDED_TODAY`, `409 NOTHING_DUE`) |
 
 ```jsonc
@@ -1118,9 +1123,11 @@ Notification `online_payment.review` → `online_payments:review` users `{ payme
 { "id", "bookingId", "bookingNo", "unitCode", "customer": { "id", "name" }, "rule", "offsetDays", "kind": "upcoming|today|overdue",
   "dueDate", "runDate", "amount", "totalOverdue", "items": [{ "itemId", "label", "amount" }], "locale",
   "sms": { "status": "queued|skipped|off", "reason", "smsId" }, "email": { "status", "reason", "smsId": null },
+  "coApplicants": [{ "id", "name", "sms": {…}, "email": {…} }],   // 2026-10-16
   "by": { "id", "name" }|null, "createdAt" }
 // settings
-"reminders": { "enabled": true, "sendHour": 10, "rules": [{ "key": "before_7", "offsetDays": -7, "enabled": true, "sms": true, "email": true }, …] }
+"reminders": { "enabled": true, "sendHour": 10, "rules": [{ "key": "before_7", "offsetDays": -7, "enabled": true, "sms": true, "email": true }, …],
+  "coApplicants": false, "texts": { "upcoming": { "bn": null, "en": null }, "today": {…}, "overdue": {…} }, "defaultTexts": {…} }
 ```
 
 ### Analytics 🔒 `analytics:read` or `reports:read` — `/analytics`

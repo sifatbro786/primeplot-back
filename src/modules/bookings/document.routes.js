@@ -1,12 +1,13 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { P } from '#shared/auth/permissions.js';
-import { ForbiddenError } from '#shared/errors/AppError.js';
+import { ConflictError, ForbiddenError } from '#shared/errors/AppError.js';
 import { validate, zid } from '#shared/middleware/validate.js';
 import { created, ok } from '#shared/utils/response.js';
 import { authenticate, authorize } from '#modules/auth/auth.middleware.js';
 import { auditContext, audit } from '#modules/audit/audit.service.js';
 import * as documents from '#modules/documents/document.service.js';
+import { Booking } from './booking.model.js';
 import { getVisibleBooking } from './booking.service.js';
 import * as docs from './documentData.js';
 
@@ -62,6 +63,55 @@ documentRouter.get('/:id', anyRead, validate(byId), async (req, res) => {
     ),
   );
 });
+
+/**
+ * Void an issued paper by hand (admin, `documents:void`) — wrong details went out. The QR check
+ * then says "cancelled" with the reason. Fix the record first (customer, booking …): a corrected
+ * copy is issued right away from today's data when that paper still applies (not statements).
+ * Receipts keep their money — only the paper is replaced; reverse the receipt to undo money.
+ */
+documentRouter.post(
+  '/:id/void',
+  authorize(P.DOCUMENTS_VOID),
+  validate({ ...byId, body: z.object({ reason: z.string().trim().min(5).max(300) }).strict() }),
+  async (req, res) => {
+    const d = await documents.getVisibleDocument(req.orgId, req.user, req.valid.params.id);
+    if (d.status !== 'valid') {
+      throw new ConflictError('This document is already void', { code: 'DOCUMENT_ALREADY_VOID' });
+    }
+    const { reason } = req.valid.body;
+    let voided = await documents.voidDocument({
+      orgId: req.orgId,
+      id: d._id,
+      reason,
+      user: req.user,
+    });
+    const booking = await Booking.findOne({ orgId: req.orgId, _id: d.bookingId }).lean();
+    const reissued = booking
+      ? await docs.safely('reissue after void', () =>
+          docs.reissueDocument(req.org, booking, voided, req.user),
+        )
+      : null;
+    if (reissued) {
+      await documents.markReplaced(req.orgId, voided._id, reissued._id);
+      voided = { ...voided, replacedBy: reissued._id };
+    }
+    await audit(auditContext(req), 'document.void', {
+      entity: { type: 'Document', id: d._id },
+      meta: {
+        type: d.type,
+        number: d.number,
+        reason,
+        bookingId: String(d.bookingId),
+        reissuedId: reissued ? String(reissued._id) : null,
+      },
+    });
+    ok(res, {
+      document: documents.toDocument(voided),
+      reissued: reissued ? documents.toDocument(reissued) : null,
+    });
+  },
+);
 
 /** The A4 page (print preview). Self-contained HTML: fonts, QR and logo inlined. */
 documentRouter.get(

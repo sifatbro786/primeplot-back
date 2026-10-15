@@ -20,8 +20,16 @@ import { Customer } from '#modules/customers/customer.model.js';
 import { Organization } from '#modules/organizations/organization.model.js';
 import { portalUrl } from '#modules/portal/portalAccount.service.js';
 import { projectSummaries } from '#modules/projects/project.service.js';
-import { queueSms } from '#modules/sms/sms.service.js';
+import { previewSms, queueSms } from '#modules/sms/sms.service.js';
 import { ReminderLog } from './reminderLog.model.js';
+import {
+  bnNum,
+  checkReminderSms,
+  DEFAULT_REMINDER_TEXTS,
+  REMINDER_MAX_SEGMENTS,
+  renderReminderSms,
+  reminderTemplate,
+} from './reminderText.js';
 
 /**
  * Installment reminder engine (B5.3, ARCHITECTURE §3.6). Rules are day offsets from the due date
@@ -106,8 +114,6 @@ export function planReminders(bookings, rules, today) {
 
 // ── Texts ───────────────────────────────────────────────────────────────────────
 
-const BN_DIGITS = '০১২৩৪৫৬৭৮৯';
-const bnNum = (s) => String(s).replace(/\d/g, (d) => BN_DIGITS[d]);
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 export function displayDate(ymd, locale) {
@@ -117,74 +123,83 @@ export function displayDate(ymd, locale) {
 
 const tk = (p) => formatTaka(p, { decimals: p % 100 !== 0 });
 
-export const REMINDER_SMS = {
-  bn: {
-    upcoming: (v) =>
-      `${v.company}: প্রিয় ${v.name}, ${v.unit}-এর ৳${bnNum(v.amount)} কিস্তি ${v.date} তারিখে পরিশোধযোগ্য। বিস্তারিত: ${v.url}`,
-    today: (v) =>
-      `${v.company}: প্রিয় ${v.name}, ${v.unit}-এর ৳${bnNum(v.amount)} কিস্তির শেষ তারিখ আজ (${v.date})। বিস্তারিত: ${v.url}`,
-    overdue: (v) =>
-      `${v.company}: প্রিয় ${v.name}, ${v.unit}-এর ৳${bnNum(v.amount)} কিস্তি ${v.date} থেকে বকেয়া। দ্রুত পরিশোধ করুন; দিয়ে থাকলে উপেক্ষা করুন। ${v.url}`,
-  },
-  en: {
-    upcoming: (v) =>
-      `${v.company}: Dear ${v.name}, Tk ${v.amount} for ${v.unit} is due on ${v.date}. Details: ${v.url}`,
-    today: (v) =>
-      `${v.company}: Dear ${v.name}, Tk ${v.amount} for ${v.unit} is due today (${v.date}). Details: ${v.url}`,
-    overdue: (v) =>
-      `${v.company}: Dear ${v.name}, Tk ${v.amount} for ${v.unit} has been overdue since ${v.date}. Please pay soon; ignore if paid. ${v.url}`,
-  },
-};
+/** The built-in texts as functions (kept for callers/tests that pass `url`). */
+export const REMINDER_SMS = Object.fromEntries(
+  ['bn', 'en'].map((lang) => [
+    lang,
+    Object.fromEntries(
+      Object.keys(DEFAULT_REMINDER_TEXTS).map((kind) => [
+        kind,
+        (v) => renderReminderSms(DEFAULT_REMINDER_TEXTS[kind][lang], { ...v, link: v.url }, lang),
+      ]),
+    ),
+  ]),
+);
+
+/**
+ * Live preview for the dashboard editor: the text filled with sample values (long name, unit,
+ * amount; the real link length) + its SMS length and cost.
+ */
+export function previewReminderSms(org, { kind, locale, text }) {
+  const company = (locale === 'bn' && org?.nameBn) || org?.name || '';
+  const template = text?.trim() || DEFAULT_REMINDER_TEXTS[kind][locale];
+  const r = checkReminderSms(template, {
+    locale,
+    company,
+    link: accounts.sampleBookingLink(locale),
+  });
+  return {
+    ...previewSms(org._id, r.rendered),
+    rendered: r.rendered,
+    unknown: r.unknown,
+    maxSegments: REMINDER_MAX_SEGMENTS,
+    ok: r.ok,
+  };
+}
 
 // ── Sending ─────────────────────────────────────────────────────────────────────
 
-async function deliver({ org, plan, customer, project, by = null, displayDue = null }) {
+const localeOf = (customer, org) =>
+  (customer.locale ?? org.settings?.defaultLocale ?? 'bn') === 'en' ? 'en' : 'bn';
+
+/**
+ * Who gets this reminder and on which channel. The holder first; co-applicants (when switched
+ * on) after — a number or address already used by someone earlier is not messaged twice
+ * (spouses often share one phone).
+ */
+function recipientsOf(plan, holder, coApplicants) {
+  const usedPhones = new Set();
+  const usedEmails = new Set();
+  const channels = (c) => {
+    const phone = c.phone ?? null;
+    const email = c.email?.toLowerCase() ?? null;
+    const sms = !(plan.rule.sms ?? true)
+      ? { status: 'off', reason: 'rule_off' }
+      : !toBdMsisdn(phone)
+        ? { status: 'skipped', reason: 'not_bd_mobile' }
+        : usedPhones.has(phone)
+          ? { status: 'skipped', reason: 'same_phone' }
+          : { status: 'queued' };
+    const mail = !(plan.rule.email ?? true)
+      ? { status: 'off', reason: 'rule_off' }
+      : !email
+        ? { status: 'skipped', reason: 'no_email' }
+        : usedEmails.has(email)
+          ? { status: 'skipped', reason: 'same_email' }
+          : { status: 'queued' };
+    if (sms.status === 'queued') usedPhones.add(phone);
+    if (mail.status === 'queued') usedEmails.add(email);
+    return { customer: c, sms, email: mail };
+  };
+  return [channels(holder), ...coApplicants.map(channels)];
+}
+
+/** Queue the SMS / e-mail for one person. Returns the `$set` changes for that log entry. */
+async function sendOne({ org, plan, project, texts, by, displayDue, person, prefix }) {
   const orgId = org._id;
   const b = plan.booking;
-  const locale = (customer.locale ?? org.settings?.defaultLocale ?? 'bn') === 'en' ? 'en' : 'bn';
-  const ruleSms = plan.rule.sms ?? true;
-  const ruleEmail = plan.rule.email ?? true;
-  const sms = !ruleSms
-    ? { status: 'off', reason: 'rule_off' }
-    : !toBdMsisdn(customer.phone)
-      ? { status: 'skipped', reason: 'not_bd_mobile' }
-      : { status: 'queued' };
-  const email = !ruleEmail
-    ? { status: 'off', reason: 'rule_off' }
-    : !customer.email
-      ? { status: 'skipped', reason: 'no_email' }
-      : { status: 'queued' };
-
-  // Claim first: the unique index decides who sends (two overlapping runs → one message).
-  let logDoc;
-  try {
-    logDoc = await ReminderLog.create({
-      orgId,
-      bookingId: b._id,
-      bookingNo: b.bookingNo,
-      projectId: b.projectId,
-      unitCode: b.unitCode,
-      customerId: customer._id,
-      customerName: customer.name,
-      ruleKey: plan.rule.key,
-      offsetDays: plan.rule.offsetDays ?? null,
-      kind: plan.kind,
-      dueDate: parseDhakaDate(plan.dueDate),
-      runDate: todayDhaka(),
-      amount: plan.amount,
-      totalOverdue: plan.totalOverdue,
-      items: plan.items.map((i) => ({ itemId: i.itemId, label: i.label, amount: i.amount })),
-      locale,
-      sms,
-      email,
-      by: by ? oid(by.id) : null,
-      byName: by?.name ?? null,
-    });
-  } catch (err) {
-    if (err?.code === 11000) return null; // already sent
-    throw err;
-  }
-
+  const { customer, sms, email } = person;
+  const locale = localeOf(customer, org);
   const company = (locale === 'bn' && org.nameBn) || org.name;
   const name = ((locale === 'bn' && customer.nameBn) || customer.name).split(' ')[0];
   const unit = `${b.unitCode}${project ? `, ${(locale === 'bn' && project.nameBn) || project.name}` : ''}`;
@@ -196,14 +211,11 @@ async function deliver({ org, plan, customer, project, by = null, displayDue = n
       const msg = await queueSms({
         orgId,
         to: customer.phone,
-        text: REMINDER_SMS[locale][plan.kind]({
-          company,
-          name,
-          unit,
-          amount: tk(plan.amount),
-          date,
-          url,
-        }),
+        text: renderReminderSms(
+          reminderTemplate(texts, plan.kind, locale),
+          { company, name, unit, amount: tk(plan.amount), date, link: url },
+          locale,
+        ),
         purpose: 'reminder',
         locale,
         bookingId: b._id,
@@ -211,9 +223,9 @@ async function deliver({ org, plan, customer, project, by = null, displayDue = n
         createdBy: by?.id ?? null,
         expiresInMs: 12 * 3_600_000, // a reminder a day late is noise
       });
-      set['sms.smsId'] = oid(msg.id);
+      set[`${prefix}sms.smsId`] = oid(msg.id);
     } catch (err) {
-      set.sms = { status: 'skipped', reason: (err.code ?? 'error').slice(0, 60) };
+      set[`${prefix}sms`] = { status: 'skipped', reason: (err.code ?? 'error').slice(0, 60) };
     }
   }
   if (email.status === 'queued') {
@@ -242,8 +254,67 @@ async function deliver({ org, plan, customer, project, by = null, displayDue = n
         },
       });
     } catch (err) {
-      set.email = { status: 'skipped', reason: (err.code ?? 'error').slice(0, 60) };
+      set[`${prefix}email`] = { status: 'skipped', reason: (err.code ?? 'error').slice(0, 60) };
     }
+  }
+  return set;
+}
+
+async function deliver({
+  org,
+  plan,
+  customer,
+  coApplicants = [],
+  project,
+  texts = null,
+  by = null,
+  displayDue = null,
+}) {
+  const orgId = org._id;
+  const b = plan.booking;
+  const [holder, ...co] = recipientsOf(plan, customer, coApplicants);
+
+  // Claim first: the unique index decides who sends (two overlapping runs → one message).
+  let logDoc;
+  try {
+    logDoc = await ReminderLog.create({
+      orgId,
+      bookingId: b._id,
+      bookingNo: b.bookingNo,
+      projectId: b.projectId,
+      unitCode: b.unitCode,
+      customerId: customer._id,
+      customerName: customer.name,
+      ruleKey: plan.rule.key,
+      offsetDays: plan.rule.offsetDays ?? null,
+      kind: plan.kind,
+      dueDate: parseDhakaDate(plan.dueDate),
+      runDate: todayDhaka(),
+      amount: plan.amount,
+      totalOverdue: plan.totalOverdue,
+      items: plan.items.map((i) => ({ itemId: i.itemId, label: i.label, amount: i.amount })),
+      locale: localeOf(customer, org),
+      sms: holder.sms,
+      email: holder.email,
+      coApplicants: co.map((p) => ({
+        customerId: p.customer._id,
+        name: p.customer.name,
+        locale: localeOf(p.customer, org),
+        sms: p.sms,
+        email: p.email,
+      })),
+      by: by ? oid(by.id) : null,
+      byName: by?.name ?? null,
+    });
+  } catch (err) {
+    if (err?.code === 11000) return null; // already sent
+    throw err;
+  }
+
+  const common = { org, plan, project, texts, by, displayDue };
+  const set = await sendOne({ ...common, person: holder, prefix: '' });
+  for (const [i, person] of co.entries()) {
+    Object.assign(set, await sendOne({ ...common, person, prefix: `coApplicants.${i}.` }));
   }
   if (Object.keys(set).length)
     await ReminderLog.updateOne({ orgId, _id: logDoc._id }, { $set: set });
@@ -268,7 +339,7 @@ async function loadCandidates(orgId, rules, today, { bookingId } = {}) {
     ...(bookingId && { _id: oid(bookingId) }),
     'schedule.dueDate': range,
   })
-    .select('bookingNo projectId unitCode customerId status schedule')
+    .select('bookingNo projectId unitCode customerId coApplicantIds status schedule')
     .lean();
 }
 
@@ -290,11 +361,10 @@ export async function runReminders(
   const plans = planReminders(bookings, settings.rules, today);
   if (!plans.length) return { today, planned: 0, sent: 0, alreadySent: 0 };
 
+  const coIdsOf = (b) => (settings.coApplicants ? (b.coApplicantIds ?? []).map(String) : []);
+  const personIds = plans.flatMap((p) => [String(p.booking.customerId), ...coIdsOf(p.booking)]);
   const [people, projects, sentKeys] = await Promise.all([
-    Customer.find({
-      orgId,
-      _id: { $in: [...new Set(plans.map((p) => String(p.booking.customerId)))] },
-    })
+    Customer.find({ orgId, _id: { $in: [...new Set(personIds)] } })
       .setOptions({ withDeleted: true })
       .lean()
       .then((rows) => new Map(rows.map((c) => [String(c._id), c]))),
@@ -311,6 +381,10 @@ export async function runReminders(
   ]);
   const key = (p) => `${p.booking._id}|${p.rule.key}|${p.dueDate}`;
   const fresh = plans.filter((p) => !sentKeys.has(key(p)));
+  const coOf = (b) =>
+    coIdsOf(b)
+      .map((id) => people.get(id))
+      .filter(Boolean);
 
   if (dryRun) {
     return {
@@ -319,6 +393,8 @@ export async function runReminders(
       alreadySent: plans.length - fresh.length,
       items: fresh.map((p) => {
         const c = people.get(String(p.booking.customerId));
+        const [holder, ...co] = c ? recipientsOf(p, c, coOf(p.booking)) : [null];
+        const on = (x) => x?.status === 'queued';
         return {
           bookingId: String(p.booking._id),
           bookingNo: p.booking.bookingNo,
@@ -330,10 +406,12 @@ export async function runReminders(
           kind: p.kind,
           dueDate: p.dueDate,
           amount: p.amount,
-          channels: {
-            sms: Boolean(p.rule.sms && c && toBdMsisdn(c.phone)),
-            email: Boolean(p.rule.email && c?.email),
-          },
+          channels: { sms: on(holder?.sms), email: on(holder?.email) },
+          coApplicants: co.map((x) => ({
+            id: String(x.customer._id),
+            name: x.customer.name,
+            channels: { sms: on(x.sms), email: on(x.email) },
+          })),
         };
       }),
     };
@@ -350,7 +428,9 @@ export async function runReminders(
           org,
           plan: p,
           customer,
+          coApplicants: coOf(p.booking),
           project: projects.get(String(p.booking.projectId)),
+          texts: settings.texts,
         })
       )
         sent += 1;
@@ -385,7 +465,12 @@ export async function remindNow({ org, user, booking, ctx }) {
     throw new ConflictError('Nothing is due on this booking', { code: 'NOTHING_DUE' });
   }
   const oldest = items.map((i) => toDhakaDate(i.dueDate)).sort()[0];
+  const settings = accounts.reminderSettingsOf(await accounts.getAccountSettings(orgId));
   const customer = await Customer.findOne({ orgId, _id: booking.customerId }).lean();
+  const coIds = settings.coApplicants ? (booking.coApplicantIds ?? []) : [];
+  const coApplicants = coIds.length
+    ? await Customer.find({ orgId, _id: { $in: coIds } }).lean()
+    : [];
   const project = (await projectSummaries(orgId, [booking.projectId])).get(
     String(booking.projectId),
   );
@@ -404,7 +489,16 @@ export async function remindNow({ org, user, booking, ctx }) {
     amount: items.reduce((s, i) => s + remainingOf(i), 0),
     totalOverdue: scheduleTotals(booking.schedule, today).overdue,
   };
-  const doc = await deliver({ org, plan, customer, project, by: user, displayDue: oldest });
+  const doc = await deliver({
+    org,
+    plan,
+    customer,
+    coApplicants,
+    project,
+    texts: settings.texts,
+    by: user,
+    displayDue: oldest,
+  });
   if (!doc) {
     throw new ConflictError('A reminder was already sent for this booking today', {
       code: 'ALREADY_REMINDED_TODAY',
@@ -446,6 +540,12 @@ export function toReminderLog(r) {
     locale: r.locale,
     sms: ch(r.sms),
     email: ch(r.email),
+    coApplicants: (r.coApplicants ?? []).map((c) => ({
+      id: String(c.customerId),
+      name: c.name,
+      sms: ch(c.sms),
+      email: ch(c.email),
+    })),
     by: r.by ? { id: String(r.by), name: r.byName ?? null } : null,
     createdAt: r.createdAt,
   };
