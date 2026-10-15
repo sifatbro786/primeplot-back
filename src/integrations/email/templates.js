@@ -11,22 +11,42 @@ const esc = (v) =>
 const BN_DIGITS = '০১২৩৪৫৬৭৮৯';
 const bnNum = (n) => String(n).replace(/\d/g, (d) => BN_DIGITS[d]);
 
+// Brand palette (primeplot-front/styles/theme.css) — inline hex because e-mail clients ignore
+// CSS variables. Olive charcoal primary, sage accent, warm linen/sand surfaces.
+const C = Object.freeze({
+  page: '#F2EDE3', // --pp-paper
+  card: '#FFFFFF', // --pp-surface
+  line: '#E5E3DF', // --pp-line
+  primary: '#2D3228', // --pp-primary
+  primaryInk: '#F9F8F6', // --pp-primary-ink
+  accent: '#6B705C', // --pp-accent (sage)
+  accentOnDark: '#A9AE96', // --pp-accent-on-dark
+  ink: '#1C1D1A', // --pp-ink
+  muted: '#666861', // --pp-ink-muted
+  subtle: '#85877F', // --pp-ink-subtle
+});
+
 function layout({ orgName, locale, body, button }) {
   const font =
     locale === 'bn'
-      ? "'Noto Sans Bengali','Hind Siliguri',Arial,sans-serif"
-      : 'Helvetica,Arial,sans-serif';
+      ? "'Hind Siliguri','Noto Sans Bengali',Arial,sans-serif"
+      : "'Plus Jakarta Sans',Helvetica,Arial,sans-serif";
+  const display = locale === 'bn' ? font : "'Playfair Display',Georgia,'Times New Roman',serif";
   const btn = button
-    ? `<p style="margin:28px 0"><a href="${esc(button.url)}" style="background:#1c1917;color:#fafaf9;text-decoration:none;padding:12px 22px;border-radius:3px;display:inline-block;font-weight:600">${esc(button.label)}</a></p>
-<p style="font-size:12px;color:#78716c;word-break:break-all">${esc(button.url)}</p>`
+    ? `<p style="margin:28px 0 8px"><a href="${esc(button.url)}" style="background:${C.primary};color:${C.primaryInk};text-decoration:none;padding:13px 24px;border-radius:4px;display:inline-block;font-weight:600;letter-spacing:.02em">${esc(button.label)}</a></p>
+<p style="font-size:12px;color:${C.subtle};word-break:break-all;margin:0">${esc(button.url)}</p>`
     : '';
-  return `<!doctype html><html lang="${locale}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"></head>
-<body style="margin:0;background:#f5f2ec;padding:24px;font-family:${font};color:#1c1917;line-height:1.6">
-<div style="max-width:520px;margin:0 auto;background:#fffdf9;border:1px solid #e7e2d9;border-radius:4px;padding:28px">
-<div style="font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:#b4532a;font-weight:700;margin-bottom:20px">${esc(orgName)}</div>
+  return `<!doctype html><html lang="${locale}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta name="color-scheme" content="light"></head>
+<body style="margin:0;background:${C.page};padding:24px 12px;font-family:${font};color:${C.ink};line-height:1.65">
+<div style="max-width:560px;margin:0 auto;background:${C.card};border:1px solid ${C.line};border-radius:6px;overflow:hidden">
+<div style="background:${C.primary};padding:22px 28px;border-bottom:3px solid ${C.accent}">
+<div style="font-family:${display};font-size:20px;line-height:1.2;color:${C.primaryInk}">${esc(orgName)}</div>
+</div>
+<div style="padding:28px 28px 30px;font-size:15px">
 ${body}${btn}
 </div>
-<p style="max-width:520px;margin:12px auto 0;font-size:11px;color:#a8a29e;text-align:center">${esc(orgName)}</p>
+</div>
+<p style="max-width:560px;margin:14px auto 0;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:${C.subtle};text-align:center">${esc(orgName)}</p>
 </body></html>`;
 }
 

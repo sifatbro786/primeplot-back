@@ -23,6 +23,8 @@
     "seed:demo": "node scripts/seed-demo.js",
     "seed:crm": "node scripts/seed-crm.js",
     "seed:sales": "node scripts/seed-sales.js",
+    "seed:portal": "node scripts/seed-portal.js",
+    "seed:site": "node scripts/seed-site.js",
     "email:check": "node scripts/email-check.js",
     "sms:check": "node scripts/sms-check.js",
     "meta:connect": "node scripts/meta-connect.js",
