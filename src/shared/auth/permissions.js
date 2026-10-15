@@ -56,7 +56,11 @@ export const P = Object.freeze({
   ACCOUNTS_SETTINGS: 'accounts:settings', // discount limits, bank accounts, receipt options
 
   // Customer portal (B5)
-  PORTAL_ACCESS: 'portal:access',
+  PORTAL_ACCESS: 'portal:access', // the client role itself
+  PORTAL_MANAGE: 'portal:manage', // client logins (disable/enable), profile change requests
+  ONLINE_PAYMENTS_REVIEW: 'online_payments:review', // SSLCommerz payments held for review
+  REMINDERS_MANAGE: 'reminders:manage', // run / preview reminders, delivery log
+  ANALYTICS_READ: 'analytics:read',
 });
 
 export const ALL_PERMISSIONS = Object.freeze(Object.values(P));
@@ -99,6 +103,10 @@ const SALES_MANAGER = [
   P.PAYMENT_SLIPS_VERIFY,
   P.DOCUMENTS_ISSUE,
   P.REPORTS_READ,
+  P.PORTAL_MANAGE,
+  P.ONLINE_PAYMENTS_REVIEW,
+  P.REMINDERS_MANAGE,
+  P.ANALYTICS_READ,
 ];
 
 const ROLE_PERMISSIONS = {

@@ -94,6 +94,10 @@ const schema = z.object({
   SSLCZ_STORE_ID: optionalStr,
   SSLCZ_STORE_PASS: optionalStr,
   SSLCZ_IS_LIVE: bool(false),
+  // Public address of THIS API, used for the SSLCommerz callback/IPN URLs (B5.2). SSLCommerz's
+  // servers must reach the IPN URL — in dev use a tunnel (docs/SSLCOMMERZ.md). Default:
+  // http://localhost:<PORT> (redirects work in your browser; the IPN won't arrive).
+  API_PUBLIC_URL: z.url().optional(),
 
   // SMS — `log` driver writes messages to the log instead of sending.
   SMS_DRIVER: z.enum(['log', 'bulksmsbd', 'sslwireless']).default('log'),
@@ -185,5 +189,6 @@ export const env = Object.freeze({
     metaLeads: Boolean(e.META_APP_SECRET && e.META_VERIFY_TOKEN),
   }),
   siteUrl: (e.PUBLIC_SITE_URL ?? e.CLIENT_URL).replace(/\/+$/, ''),
+  apiUrl: (e.API_PUBLIC_URL ?? `http://localhost:${e.PORT}`).replace(/\/+$/, ''),
   revalidateUrl: e.FRONTEND_REVALIDATE_URL ?? `${e.CLIENT_URL.replace(/\/+$/, '')}/api/revalidate`,
 });

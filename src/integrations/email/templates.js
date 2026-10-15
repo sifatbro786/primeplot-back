@@ -115,7 +115,9 @@ const TEMPLATES = {
           `Thank you — we have received <b>Tk ${esc(d.amount)}</b> on ${esc(d.date)} for booking ` +
             `${esc(d.bookingNo)} (${esc(d.unit)}, ${esc(d.project)}).`,
         ) +
-        p(`Your money receipt <b>${esc(d.receiptNo)}</b> is attached as a PDF. Its QR code can be scanned to check it.`),
+        p(
+          `Your money receipt <b>${esc(d.receiptNo)}</b> is attached as a PDF. Its QR code can be scanned to check it.`,
+        ),
       button: { label: 'Verify the receipt', url: d.verifyUrl },
       text: `Dear ${d.name},\n\nWe have received Tk ${d.amount} on ${d.date} for booking ${d.bookingNo} (${d.unit}, ${d.project}). Receipt ${d.receiptNo} is attached.\n\nVerify: ${d.verifyUrl}`,
     }),
@@ -127,9 +129,80 @@ const TEMPLATES = {
           `ধন্যবাদ — বুকিং ${esc(d.bookingNo)} (${esc(d.unit)}, ${esc(d.project)})-এর জন্য ${esc(d.date)} তারিখে ` +
             `<b>৳${bnNum(esc(d.amount))}</b> গ্রহণ করা হয়েছে।`,
         ) +
-        p(`আপনার মানি রসিদ <b>${esc(d.receiptNo)}</b> PDF হিসেবে সংযুক্ত। রসিদের QR কোড স্ক্যান করে এটি যাচাই করা যাবে।`),
+        p(
+          `আপনার মানি রসিদ <b>${esc(d.receiptNo)}</b> PDF হিসেবে সংযুক্ত। রসিদের QR কোড স্ক্যান করে এটি যাচাই করা যাবে।`,
+        ),
       button: { label: 'রসিদ যাচাই করুন', url: d.verifyUrl },
       text: `প্রিয় ${d.name},\n\nবুকিং ${d.bookingNo}-এর জন্য ৳${bnNum(d.amount)} গ্রহণ করা হয়েছে। রসিদ ${d.receiptNo} সংযুক্ত।\n\nযাচাই: ${d.verifyUrl}`,
+    }),
+  },
+
+  // B5 — short portal notices (slip approved/rejected, profile request, online payment).
+  // `lines` are plain strings (escaped); the caller writes them in the client's language.
+  notice: {
+    en: (d) => ({
+      subject: `${d.subject} — ${d.orgName}`,
+      body: p(`Dear ${esc(d.name)},`) + (d.lines ?? []).map((l) => p(esc(l))).join(''),
+      button: d.url ? { label: d.buttonLabel ?? 'Open the portal', url: d.url } : undefined,
+      text: `Dear ${d.name},\n\n${(d.lines ?? []).join('\n')}${d.url ? `\n\n${d.url}` : ''}`,
+    }),
+    bn: (d) => ({
+      subject: `${d.subject} — ${d.orgName}`,
+      body: p(`প্রিয় ${esc(d.name)},`) + (d.lines ?? []).map((l) => p(esc(l))).join(''),
+      button: d.url ? { label: d.buttonLabel ?? 'পোর্টাল খুলুন', url: d.url } : undefined,
+      text: `প্রিয় ${d.name},\n\n${(d.lines ?? []).join('\n')}${d.url ? `\n\n${d.url}` : ''}`,
+    }),
+  },
+
+  // B5.3 — installment reminder. `items`: [{ label, dueDate, amount }] (amount pre-formatted).
+  installment_reminder: {
+    en: (d) => ({
+      subject:
+        d.kind === 'overdue'
+          ? `Payment overdue — ${d.bookingNo} — ${d.orgName}`
+          : `Payment reminder — ${d.bookingNo} — ${d.orgName}`,
+      body:
+        p(`Dear ${esc(d.name)},`) +
+        p(
+          d.kind === 'overdue'
+            ? `Tk ${esc(d.amount)} for ${esc(d.unit)} (${esc(d.project)}) was due on ${esc(d.dueDate)} and is still unpaid.`
+            : d.kind === 'today'
+              ? `Tk ${esc(d.amount)} for ${esc(d.unit)} (${esc(d.project)}) is due today, ${esc(d.dueDate)}.`
+              : `Tk ${esc(d.amount)} for ${esc(d.unit)} (${esc(d.project)}) falls due on ${esc(d.dueDate)}.`,
+        ) +
+        (d.items ?? [])
+          .map((i) => p(`• ${esc(i.label)} — Tk ${esc(i.amount)} (${esc(i.dueDate)})`))
+          .join('') +
+        (d.totalOverdue
+          ? p(`Total overdue on this booking: <b>Tk ${esc(d.totalOverdue)}</b>.`)
+          : '') +
+        p('If you have already paid, please ignore this message — thank you.'),
+      button: d.url ? { label: 'View dues and pay', url: d.url } : undefined,
+      text: `Dear ${d.name},\n\nTk ${d.amount} for ${d.unit} (${d.project}) — due ${d.dueDate}.${d.url ? `\n\n${d.url}` : ''}\n\nIf you have already paid, please ignore this message.`,
+    }),
+    bn: (d) => ({
+      subject:
+        d.kind === 'overdue'
+          ? `কিস্তি বকেয়া — ${d.bookingNo} — ${d.orgName}`
+          : `কিস্তির রিমাইন্ডার — ${d.bookingNo} — ${d.orgName}`,
+      body:
+        p(`প্রিয় ${esc(d.name)},`) +
+        p(
+          d.kind === 'overdue'
+            ? `${esc(d.unit)} (${esc(d.project)})-এর ৳${bnNum(esc(d.amount))} পরিশোধের তারিখ ছিল ${esc(d.dueDate)}, যা এখনও বকেয়া।`
+            : d.kind === 'today'
+              ? `${esc(d.unit)} (${esc(d.project)})-এর ৳${bnNum(esc(d.amount))} পরিশোধের শেষ তারিখ আজ, ${esc(d.dueDate)}।`
+              : `${esc(d.unit)} (${esc(d.project)})-এর ৳${bnNum(esc(d.amount))} পরিশোধের তারিখ ${esc(d.dueDate)}।`,
+        ) +
+        (d.items ?? [])
+          .map((i) => p(`• ${esc(i.label)} — ৳${bnNum(esc(i.amount))} (${esc(i.dueDate)})`))
+          .join('') +
+        (d.totalOverdue
+          ? p(`এই বুকিংয়ে মোট বকেয়া: <b>৳${bnNum(esc(d.totalOverdue))}</b>।`)
+          : '') +
+        p('ইতিমধ্যে পরিশোধ করে থাকলে এই বার্তাটি উপেক্ষা করুন — ধন্যবাদ।'),
+      button: d.url ? { label: 'বকেয়া দেখুন ও পরিশোধ করুন', url: d.url } : undefined,
+      text: `প্রিয় ${d.name},\n\n${d.unit} (${d.project})-এর ৳${bnNum(d.amount)} — তারিখ ${d.dueDate}।${d.url ? `\n\n${d.url}` : ''}\n\nইতিমধ্যে পরিশোধ করে থাকলে উপেক্ষা করুন।`,
     }),
   },
 };

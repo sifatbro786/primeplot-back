@@ -15,10 +15,10 @@ import { NotFoundError } from '#shared/errors/AppError.js';
 import { signSocketToken, SOCKET_TOKEN_TTL_SEC } from './token.service.js';
 
 export async function login(req, res) {
-  const { email, password, remember } = req.valid.body;
+  const { email, identifier, password, remember } = req.valid.body;
   const r = await authService.login({
     orgId: req.orgId,
-    email,
+    ...authService.parseIdentifier(identifier ?? email),
     password,
     remember,
     ctx: auditContext(req),
@@ -80,15 +80,16 @@ export async function updateMe(req, res) {
 }
 
 export async function forgotPassword(req, res) {
+  const { email, identifier } = req.valid.body;
   await authService.forgotPassword({
     org: req.org,
-    email: req.valid.body.email,
+    ...authService.parseIdentifier(identifier ?? email),
     ctx: auditContext(req),
   });
-  // Same answer whether or not the email exists.
+  // Same answer whether or not the account exists.
   ok(
     res,
-    { message: 'If an account exists for this email, a link has been sent.' },
+    { message: 'If an account exists for this e-mail or number, a link has been sent.' },
     { status: 202 },
   );
 }

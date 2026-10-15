@@ -1,4 +1,3 @@
-import { env } from '#config/env.js';
 import { logger } from '#config/logger.js';
 import { fakeVerify, hashPassword, verifyPassword } from '#shared/crypto/password.js';
 import {
@@ -11,13 +10,10 @@ import {
 import { audit } from '#modules/audit/audit.service.js';
 import { User } from '#modules/users/user.model.js';
 import { queueEmail } from '#integrations/email/queue.js';
+import { normalizePhone } from '#shared/utils/phone.js';
 import { invalidateUser } from './authState.js';
-import {
-  consumeAuthToken,
-  issueAuthToken,
-  peekAuthToken,
-  TOKEN_TTL_MS,
-} from './authToken.service.js';
+import { maskEmail, maskPhone, sendAuthLink } from './authLinks.js';
+import { consumeAuthToken, peekAuthToken } from './authToken.service.js';
 import { assertPasswordAllowed } from './passwordPolicy.js';
 import {
   createSession,
@@ -38,7 +34,34 @@ const MAX_FAILED = 5;
 const LOCK_BASE_MIN = 15; // 15, 30, 60, 120, 240 min for repeated lockouts
 
 const invalidCredentials = () =>
-  new UnauthorizedError('Incorrect email or password', { code: 'INVALID_CREDENTIALS' });
+  new UnauthorizedError('Incorrect e-mail/phone or password', { code: 'INVALID_CREDENTIALS' });
+
+/**
+ * B5: sign-in by e-mail OR mobile number. Returns { email } or { phone } (E.164); an
+ * unparseable phone becomes { phone: null }, which simply finds nobody.
+ */
+export function parseIdentifier(raw) {
+  const s = String(raw ?? '').trim();
+  if (s.includes('@')) return { email: s.toLowerCase() };
+  return { phone: normalizePhone(s) };
+}
+
+const AUTH_FIELDS = '+passwordHash +failedLoginCount +lockCount +lockUntil';
+// One phone can belong to two logins (a staff member who also bought a unit, spouses sharing
+// a number). The password decides which one signs in; more than this many is never legitimate.
+const MAX_PHONE_ACCOUNTS = 3;
+
+async function findLoginCandidates(orgId, { email, phone }) {
+  if (email) {
+    const u = await User.findOne({ orgId, email }).select(AUTH_FIELDS);
+    return u ? [u] : [];
+  }
+  if (!phone) return [];
+  return User.find({ orgId, phone, status: { $ne: 'disabled' } })
+    .select(AUTH_FIELDS)
+    .sort({ _id: 1 })
+    .limit(MAX_PHONE_ACCOUNTS);
+}
 const invalidLink = () =>
   new BadRequestError('This link is invalid or has expired', { code: 'INVALID_TOKEN' });
 
@@ -79,24 +102,35 @@ function issueTokens(user, session) {
   return { accessToken: signAccessToken({ user, sessionId: session._id }) };
 }
 
-export async function login({ orgId, email, password, remember, ctx }) {
-  const user = await User.findOne({ orgId, email }).select(
-    '+passwordHash +failedLoginCount +lockCount +lockUntil',
+export async function login({ orgId, email, phone, password, remember, ctx }) {
+  const candidates = (await findLoginCandidates(orgId, { email, phone })).filter(
+    (u) => u.passwordHash,
   );
 
-  // Unknown email and invited (no password yet) look exactly like a wrong password.
-  if (!user || !user.passwordHash) {
+  // Unknown account and invited (no password yet) look exactly like a wrong password.
+  if (!candidates.length) {
     await fakeVerify(password);
     throw invalidCredentials();
   }
-  if (user.lockUntil && user.lockUntil > new Date()) {
+  const now = new Date();
+  const open = candidates.filter((u) => !(u.lockUntil && u.lockUntil > now));
+  if (!open.length) {
     await fakeVerify(password);
-    throw lockedError(user.lockUntil);
+    throw lockedError(candidates[0].lockUntil);
   }
 
-  const { ok, needsRehash } = await verifyPassword(password, user.passwordHash);
-  if (!ok) {
-    await registerFailure(user, { ...ctx, actor: { kind: 'anonymous' } });
+  let user = null;
+  let needsRehash = false;
+  for (const u of open) {
+    const r = await verifyPassword(password, u.passwordHash);
+    if (r.ok) {
+      user = u;
+      needsRehash = r.needsRehash;
+      break;
+    }
+  }
+  if (!user) {
+    for (const u of open) await registerFailure(u, { ...ctx, actor: { kind: 'anonymous' } });
     throw invalidCredentials();
   }
   // Only reveal "disabled" to someone who knows the password.
@@ -176,45 +210,49 @@ export async function logoutAll({ orgId, userId, ctx }) {
 
 /**
  * Always resolves (no account enumeration). Active users get a reset link; invited users who
- * never finished setup get a fresh setup link instead.
+ * never finished setup get a fresh setup link instead. By e-mail → e-mail; by phone (B5) → SMS
+ * to that number (every login on it, at most MAX_PHONE_ACCOUNTS).
  */
-export async function forgotPassword({ org, email, ctx }) {
-  const user = await User.findOne({ orgId: org._id, email }).lean();
-  if (!user || user.status === 'disabled') return;
+export async function forgotPassword({ org, email, phone, ctx }) {
+  let users;
+  if (email) users = [await User.findOne({ orgId: org._id, email }).lean()];
+  else if (phone) {
+    users = await User.find({ orgId: org._id, phone })
+      .sort({ _id: 1 })
+      .limit(MAX_PHONE_ACCOUNTS)
+      .lean();
+  } else return;
 
-  const purpose = user.status === 'invited' ? 'account_setup' : 'password_reset';
-  const { token } = await issueAuthToken({ orgId: org._id, userId: user._id, purpose, ip: ctx.ip });
-  const path = purpose === 'account_setup' ? 'setup-account' : 'reset-password';
-  await queueEmail({
-    orgId: org._id,
-    to: user.email,
-    template: purpose,
-    locale: user.locale,
-    sensitive: true,
-    data: {
-      name: user.name,
-      orgName: org.name,
-      // Locale in the link: opens the page in the user's language without a redirect hop.
-      url: `${env.CLIENT_URL}/${user.locale === 'en' ? 'en' : 'bn'}/${path}?token=${token}`,
-      expiresMin: TOKEN_TTL_MS.password_reset / 60_000,
-      expiresHours: TOKEN_TTL_MS.account_setup / 3_600_000,
-    },
-  });
-  await audit({ ...ctx, actor: { kind: 'anonymous' } }, `auth.${purpose}_requested`, {
-    entity: { type: 'User', id: user._id },
-  });
+  for (const user of users) {
+    if (!user || user.status === 'disabled') continue;
+    const purpose = user.status === 'invited' ? 'account_setup' : 'password_reset';
+    await sendAuthLink({
+      org,
+      user,
+      purpose,
+      channels: email ? { email: true, sms: false } : { email: false, sms: true },
+      ip: ctx.ip,
+    });
+    await audit({ ...ctx, actor: { kind: 'anonymous' } }, `auth.${purpose}_requested`, {
+      entity: { type: 'User', id: user._id },
+      meta: { via: email ? 'email' : 'sms' },
+    });
+  }
 }
 
 /** For the reset/setup page: is the link still usable? Returns a masked email, never more. */
 export async function inspectToken({ orgId, token, purpose }) {
   const t = await peekAuthToken({ orgId, token, purpose });
   if (!t) return { valid: false };
-  const user = await User.findOne({ orgId, _id: t.userId }).select('email status').lean();
+  const user = await User.findOne({ orgId, _id: t.userId })
+    .select('email phone status role')
+    .lean();
   if (!user || user.status === 'disabled') return { valid: false };
-  const [local, domain] = user.email.split('@');
   return {
     valid: true,
-    email: `${local.slice(0, 2)}${'•'.repeat(Math.max(1, local.length - 2))}@${domain}`,
+    email: maskEmail(user.email), // null for a phone-only portal client (B5)
+    phone: maskPhone(user.phone),
+    role: user.role === 'client' ? 'client' : 'staff', // the page links to /portal or /dashboard
     expiresAt: t.expiresAt,
   };
 }
@@ -256,6 +294,7 @@ async function consumeForUser({ org, token, purpose, password }) {
 export async function resetPassword({ org, token, password, ctx }) {
   const user = await consumeForUser({ org, token, purpose: 'password_reset', password });
   await setPassword({ org, user, password, ctx, action: 'auth.password_reset' });
+  if (!user.email) return;
   await queueEmail({
     orgId: org._id,
     to: user.email,
@@ -320,18 +359,19 @@ export async function changePassword({
     exceptSessionId: sessionId,
   });
   await audit(ctx, 'auth.password_change', { entity: { type: 'User', id: user._id } });
-  await queueEmail({
-    orgId: org._id,
-    to: user.email,
-    template: 'password_changed',
-    locale: user.locale,
-    data: {
-      name: user.name,
-      orgName: org.name,
-      when: new Date().toLocaleString('en-GB', {
-        timeZone: org.settings?.timezone ?? 'Asia/Dhaka',
-      }),
-    },
-  });
+  if (user.email)
+    await queueEmail({
+      orgId: org._id,
+      to: user.email,
+      template: 'password_changed',
+      locale: user.locale,
+      data: {
+        name: user.name,
+        orgName: org.name,
+        when: new Date().toLocaleString('en-GB', {
+          timeZone: org.settings?.timezone ?? 'Asia/Dhaka',
+        }),
+      },
+    });
   return { accessToken: signAccessToken({ user, sessionId }) };
 }

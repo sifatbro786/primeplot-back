@@ -329,7 +329,8 @@ try {
         .lean()
     ).filter((u) => !usedUnits.has(String(u._id)));
 
-  // Settings: allow back-dated receipts, no SMS while seeding (restored in `finally`).
+  // Settings: allow back-dated receipts, no SMS/e-mail and no portal invites (B5) while
+  // seeding — demo buyers must not get setup links (restored in `finally`).
   const before = accounts.toAccountSettings(await accounts.getAccountSettings(orgId));
   const tmp = await accounts.updateAccountSettings({
     orgId,
@@ -337,6 +338,7 @@ try {
       version: before.version,
       receiptBackdateDays: 366,
       notify: { receiptSms: false, receiptEmail: false },
+      portal: { autoInvite: false },
     },
     ctx,
   });
@@ -347,6 +349,7 @@ try {
         version: tmp.version,
         receiptBackdateDays: before.receiptBackdateDays,
         notify: before.notify,
+        portal: { autoInvite: before.portal.autoInvite },
       },
       ctx,
     });

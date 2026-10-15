@@ -83,6 +83,47 @@ export const zSettingsPatch = z
       .object({ receiptEmail: z.boolean().optional(), receiptSms: z.boolean().optional() })
       .strict()
       .optional(),
+    // B5.1
+    portal: z
+      .object({
+        autoInvite: z.boolean().optional(),
+        autoInviteCoApplicants: z.boolean().optional(),
+        inviteSms: z.boolean().optional(),
+        inviteEmail: z.boolean().optional(),
+        slipUpload: z.boolean().optional(),
+        onlinePayment: z.boolean().optional(),
+        onlineMinAmount: z.number().int().min(100).max(100_000_000).optional(), // ৳1 … ৳10 lakh
+        resultSms: z.boolean().optional(),
+      })
+      .strict()
+      .optional(),
+    // B5.3 — `rules` replaces the whole list
+    reminders: z
+      .object({
+        enabled: z.boolean().optional(),
+        sendHour: z.number().int().min(7).max(21).optional(),
+        rules: z
+          .array(
+            z
+              .object({
+                key: z.string().regex(/^[a-z0-9_]{1,30}$/),
+                offsetDays: z.number().int().min(-60).max(120),
+                enabled: z.boolean().default(true),
+                sms: z.boolean().default(true),
+                email: z.boolean().default(true),
+              })
+              .strict(),
+          )
+          .max(8)
+          .refine((r) => new Set(r.map((x) => x.key)).size === r.length, 'Rule keys repeat')
+          .refine(
+            (r) => new Set(r.map((x) => x.offsetDays)).size === r.length,
+            'Two rules on the same day',
+          )
+          .optional(),
+      })
+      .strict()
+      .optional(),
   })
   .strict()
   .refine((b) => Object.keys(b).length > 1, 'Nothing to update');

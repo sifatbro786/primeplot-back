@@ -26,6 +26,8 @@
     "email:check": "node scripts/email-check.js",
     "sms:check": "node scripts/sms-check.js",
     "meta:connect": "node scripts/meta-connect.js",
+    "sslcz:check": "node scripts/sslcz-check.js",
+    "db:indexes": "node scripts/sync-indexes.js",
     "test": "vitest run",
     "test:unit": "vitest run tests/unit",
     "test:watch": "vitest",

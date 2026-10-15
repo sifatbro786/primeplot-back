@@ -25,6 +25,46 @@ const accountSettingsSchema = new mongoose.Schema(
       receiptEmail: { type: Boolean, default: true },
       receiptSms: { type: Boolean, default: false },
     },
+    // B5.1 customer portal (owner decisions 2026-10-15)
+    portal: {
+      // The holder gets a client login when a booking is made / a unit is transferred to them.
+      autoInvite: { type: Boolean, default: true },
+      // Co-applicants are invited by staff from the customer page (not automatically).
+      autoInviteCoApplicants: { type: Boolean, default: false },
+      inviteSms: { type: Boolean, default: true },
+      inviteEmail: { type: Boolean, default: true },
+      slipUpload: { type: Boolean, default: true },
+      // SSLCommerz (shown only when the store keys are set); minimum ৳1,000 unless less is due.
+      onlinePayment: { type: Boolean, default: true },
+      onlineMinAmount: { type: Number, min: 100, default: 100_000 },
+      // SMS to the client when a slip / profile request is decided or an online payment lands.
+      resultSms: { type: Boolean, default: true },
+    },
+    // B5.3 installment reminders. offsetDays: days from the due date (−7 = a week before).
+    reminders: {
+      enabled: { type: Boolean, default: true },
+      sendHour: { type: Number, min: 7, max: 21, default: 10 }, // Dhaka time, not before
+      rules: {
+        type: [
+          new mongoose.Schema(
+            {
+              key: { type: String, required: true, match: /^[a-z0-9_]{1,30}$/ },
+              offsetDays: { type: Number, min: -60, max: 120, required: true },
+              enabled: { type: Boolean, default: true },
+              sms: { type: Boolean, default: true },
+              email: { type: Boolean, default: true },
+            },
+            { _id: false },
+          ),
+        ],
+        default: () => [
+          { key: 'before_7', offsetDays: -7 },
+          { key: 'due_day', offsetDays: 0 },
+          { key: 'overdue_3', offsetDays: 3 },
+          { key: 'overdue_15', offsetDays: 15 },
+        ],
+      },
+    },
   },
   { collection: 'account_settings', optimisticConcurrency: true },
 );

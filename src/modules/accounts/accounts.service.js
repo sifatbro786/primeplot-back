@@ -57,7 +57,45 @@ export function toAccountSettings(s) {
       receiptEmail: s.notify?.receiptEmail ?? true,
       receiptSms: s.notify?.receiptSms ?? false,
     },
+    portal: portalSettingsOf(s),
+    reminders: reminderSettingsOf(s),
   };
+}
+
+/** B5.1 portal settings with defaults filled in (documents created before B5 lack them). */
+export function portalSettingsOf(s) {
+  const p = s?.portal ?? {};
+  return {
+    autoInvite: p.autoInvite ?? true,
+    autoInviteCoApplicants: p.autoInviteCoApplicants ?? false,
+    inviteSms: p.inviteSms ?? true,
+    inviteEmail: p.inviteEmail ?? true,
+    slipUpload: p.slipUpload ?? true,
+    onlinePayment: p.onlinePayment ?? true,
+    onlineMinAmount: p.onlineMinAmount ?? 100_000,
+    resultSms: p.resultSms ?? true,
+  };
+}
+
+export const DEFAULT_REMINDER_RULES = Object.freeze([
+  { key: 'before_7', offsetDays: -7, enabled: true, sms: true, email: true },
+  { key: 'due_day', offsetDays: 0, enabled: true, sms: true, email: true },
+  { key: 'overdue_3', offsetDays: 3, enabled: true, sms: true, email: true },
+  { key: 'overdue_15', offsetDays: 15, enabled: true, sms: true, email: true },
+]);
+
+/** B5.3 reminder settings with defaults filled in. Rules sorted by offset. */
+export function reminderSettingsOf(s) {
+  const r = s?.reminders ?? {};
+  const rules = (r.rules?.length ? r.rules : DEFAULT_REMINDER_RULES).map((x) => ({
+    key: x.key,
+    offsetDays: x.offsetDays,
+    enabled: x.enabled ?? true,
+    sms: x.sms ?? true,
+    email: x.email ?? true,
+  }));
+  rules.sort((a, b) => a.offsetDays - b.offsetDays);
+  return { enabled: r.enabled ?? true, sendHour: r.sendHour ?? 10, rules };
 }
 
 const SETTINGS_PATHS = [
@@ -66,6 +104,8 @@ const SETTINGS_PATHS = [
   'receiptBackdateDays',
   'chequeBounceFee',
   'notify',
+  'portal',
+  'reminders',
 ];
 
 export async function updateAccountSettings({ orgId, patch, ctx }) {
@@ -235,7 +275,8 @@ export async function createReceiptDocs({
         allocations,
         note: payment.note ?? null,
         receivedBy: user ? oid(user.id) : null,
-        receivedByName: user?.name ?? null,
+        // B5: system receipts (SSLCommerz) have no user — the payment names the channel.
+        receivedByName: user?.name ?? payment.receivedByName ?? null,
         idempotencyKey: idempotencyKey ?? null,
       },
     ],
@@ -254,7 +295,7 @@ export async function createReceiptDocs({
         amount,
         allocations: allocations.map((a) => ({ itemId: a.itemId, amount: a.amount })),
         by: user ? oid(user.id) : null,
-        byName: user?.name ?? null,
+        byName: user?.name ?? payment.receivedByName ?? null,
       },
     ],
     { session },
@@ -360,7 +401,11 @@ export function toReceipt(r, { bankAccounts } = {}) {
       amount: a.amount,
     })),
     note: r.note ?? null,
-    receivedBy: r.receivedBy ? { id: String(r.receivedBy), name: r.receivedByName ?? null } : null,
+    receivedBy: r.receivedBy
+      ? { id: String(r.receivedBy), name: r.receivedByName ?? null }
+      : r.receivedByName
+        ? { id: null, name: r.receivedByName } // B5: online (SSLCommerz)
+        : null,
     status: r.status,
     reversal: r.reversal
       ? {

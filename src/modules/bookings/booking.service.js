@@ -28,6 +28,7 @@ import {
 } from '#modules/units/unit.service.js';
 import { effectiveStatus } from '#modules/units/unitStatus.js';
 import { voidDocuments } from '#modules/documents/document.service.js';
+import { autoInvite } from '#modules/portal/portalAccount.service.js';
 import { Booking } from './booking.model.js';
 import * as docs from './documentData.js';
 import { planForBooking } from './plan.service.js';
@@ -703,6 +704,8 @@ export async function createBooking({ org, user, input, idempotencyKey, ctx }) {
     }).catch((err) => log.warn({ err: { message: err.message } }, 'lead → won failed'));
   }
   if (receipt) await accounts.notifyReceipt({ org, receipt, customer: primary });
+  // B5.1: the holder's portal login + setup link (never fails the booking).
+  await autoInvite(org, { holderId: primary._id, coApplicantIds: coIds, by: user });
   // B4.3 documents — after the commit, never failing the booking.
   await docs.safely('booking_form', () => docs.issueBookingForm(org, booking, user));
   if (receipt)
@@ -749,15 +752,55 @@ export async function addPayment({ org, user, bookingId, input, idempotencyKey, 
     const prior = await accounts.findReceiptByIdempotencyKey(orgId, idempotencyKey);
     if (prior) return replay(prior);
   }
-
   const booking = await getVisibleBooking(orgId, user, bookingId);
+  const { receipt, replayed } = await recordReceipt({
+    org,
+    booking,
+    payment: input,
+    user,
+    idempotencyKey,
+    ctx,
+  });
+  if (replayed) return replay(receipt);
+  return { receipt: (await accounts.serializeReceipts(orgId, [receipt]))[0], replayed: false };
+}
+
+/**
+ * Write one receipt for a booking (the money path every channel shares: staff entry, a
+ * verified portal slip, an SSLCommerz payment — B5). Checks the date rules, allocates oldest
+ * first inside the transaction, writes receipt + ledger + schedule cache + audit, then sends
+ * the receipt SMS/e-mail and issues the QR document after the commit.
+ *
+ * `inTransaction(session, receipt)` runs inside the same transaction (e.g. mark the slip
+ * approved) so both commit or neither does. `checkDate: false` skips the back-date window
+ * (the money date of a verified slip / gateway payment is a fact, not an entry choice).
+ *
+ * Returns { receipt (lean), replayed } — replayed: the idempotency key already had a receipt.
+ */
+export async function recordReceipt({
+  org,
+  booking,
+  payment: input,
+  user,
+  idempotencyKey,
+  ctx,
+  inTransaction,
+  checkDate = true,
+  auditMeta,
+}) {
+  const orgId = org._id;
   if (booking.status !== 'active') {
     throw new ConflictError('This booking is not active', { code: 'BOOKING_NOT_ACTIVE' });
   }
   const settings = await accounts.getAccountSettings(orgId);
   const today = todayDhaka();
   const date = input.date ?? today;
-  checkBusinessDate(date, today, settings.receiptBackdateDays ?? 31, 'RECEIPT');
+  if (checkDate) checkBusinessDate(date, today, settings.receiptBackdateDays ?? 31, 'RECEIPT');
+  else if (date > today) {
+    throw unprocessable('The date is in the future', 'RECEIPT_DATE_FUTURE', [
+      { path: 'date', message: 'In the future' },
+    ]);
+  }
   if (date < toDhakaDate(booking.bookingDate)) {
     throw unprocessable('The receipt date is before the booking date', 'RECEIPT_BEFORE_BOOKING', [
       { path: 'date', message: 'Before the booking' },
@@ -795,6 +838,7 @@ export async function addPayment({ org, user, bookingId, input, idempotencyKey, 
         idempotencyKey,
       });
       await applyPaid(orgId, fresh, allocations, 1, session);
+      if (inTransaction) await inTransaction(session, receipt);
       await audit(ctx, 'receipt.create', {
         entity: { type: 'Receipt', id: receipt._id },
         meta: {
@@ -802,6 +846,7 @@ export async function addPayment({ org, user, bookingId, input, idempotencyKey, 
           bookingNo: fresh.bookingNo,
           amount: receipt.amount,
           mode: receipt.mode,
+          ...auditMeta,
         },
         session,
       });
@@ -809,7 +854,7 @@ export async function addPayment({ org, user, bookingId, input, idempotencyKey, 
   } catch (err) {
     if (err?.code === 11000 && err.keyPattern?.idempotencyKey) {
       const prior = await accounts.findReceiptByIdempotencyKey(orgId, idempotencyKey);
-      if (prior) return replay(prior);
+      if (prior) return { receipt: prior, replayed: true };
     }
     throw err;
   }
@@ -822,7 +867,7 @@ export async function addPayment({ org, user, bookingId, input, idempotencyKey, 
       user,
     ),
   );
-  return { receipt: (await accounts.serializeReceipts(orgId, [receipt]))[0], replayed: false };
+  return { receipt, replayed: false };
 }
 
 /**

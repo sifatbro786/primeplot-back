@@ -40,10 +40,12 @@ export function toSms(m) {
   return {
     id: String(m._id),
     to: m.to,
-    body: m.body,
+    body: m.sensitive ? (m.redactedBody ?? '•••') : m.body,
     locale: m.locale ?? null,
     purpose: m.purpose,
     leadId: m.leadId ? String(m.leadId) : null,
+    bookingId: m.bookingId ? String(m.bookingId) : null,
+    customerId: m.customerId ? String(m.customerId) : null,
     encoding: m.encoding,
     segments: m.segments,
     costPoisha: m.costPoisha ?? null,
@@ -83,6 +85,7 @@ async function noteOnLead(orgId, msg, status, errorCode = null) {
 async function settle(orgId, msg, status, { error, providerMessageId } = {}) {
   const now = new Date();
   const set = { status };
+  if (msg.sensitive) set.body = msg.redactedBody ?? '•••'; // the secret link leaves the DB
   if (status === 'sent')
     Object.assign(set, {
       sentAt: now,
@@ -108,8 +111,10 @@ async function settle(orgId, msg, status, { error, providerMessageId } = {}) {
  * reach them). Returns the message (serialized).
  * @param {object} p
  * @param {string} p.to E.164
- * @param {'lead_auto_reply'|'test'} p.purpose
+ * @param {string} p.purpose one of SMS_PURPOSES
  * @param {number} [p.expiresInMs] give up if it can't be sent within this time
+ * @param {string} [p.redacted] the same text without its secret (setup/reset links) — what the
+ *   delivery log shows; the real body is wiped once the message is settled
  */
 export async function queueSms({
   orgId,
@@ -117,9 +122,12 @@ export async function queueSms({
   text,
   purpose,
   leadId = null,
+  bookingId = null,
+  customerId = null,
   locale = null,
   createdBy = null,
   expiresInMs,
+  redacted,
 }) {
   const info = smsInfo(orgId);
   const a = smsCost(text, info.costPerSegmentPoisha);
@@ -136,6 +144,10 @@ export async function queueSms({
     locale,
     purpose,
     leadId,
+    bookingId,
+    customerId,
+    sensitive: Boolean(redacted),
+    redactedBody: redacted ?? null,
     encoding: a.encoding,
     segments: a.segments,
     costPoisha: a.costPoisha,
@@ -214,11 +226,15 @@ export async function deliverSms(orgId, messageId, { job, signal } = {}) {
   }
 }
 
-export async function listSmsMessages(orgId, { status, purpose, leadId, to, cursor, limit }) {
+export async function listSmsMessages(
+  orgId,
+  { status, purpose, leadId, bookingId, to, cursor, limit },
+) {
   const filter = { orgId, ...cursorFilter(cursor) };
   if (status) filter.status = status;
   if (purpose) filter.purpose = purpose;
   if (leadId) filter.leadId = new ObjectId(leadId);
+  if (bookingId) filter.bookingId = new ObjectId(bookingId);
   if (to) filter.to = to;
   const rows = await SmsMessage.find(filter)
     .sort({ createdAt: -1, _id: -1 })

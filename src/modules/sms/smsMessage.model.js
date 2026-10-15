@@ -4,7 +4,15 @@ import { baseSchema } from '#shared/plugins/baseSchema.js';
 const { ObjectId } = mongoose.Schema.Types;
 
 export const SMS_STATUSES = Object.freeze(['queued', 'sent', 'failed', 'skipped']);
-export const SMS_PURPOSES = Object.freeze(['lead_auto_reply', 'test', 'receipt']); // receipt: B4
+export const SMS_PURPOSES = Object.freeze([
+  'lead_auto_reply',
+  'test',
+  'receipt', // B4
+  'account_setup', // B5: portal invite (setup link)
+  'password_reset', // B5: reset link for phone-only logins
+  'reminder', // B5.3: installment reminders
+  'portal', // B5: slip / profile request / online payment results
+]);
 
 /**
  * SMS delivery log (B3.2) — one document per message, written before sending.
@@ -19,6 +27,13 @@ const smsMessageSchema = new mongoose.Schema(
     locale: { type: String, enum: ['bn', 'en', null], default: null },
     purpose: { type: String, enum: SMS_PURPOSES, required: true },
     leadId: { type: ObjectId, ref: 'Lead', default: null },
+    // B5: references for the delivery log (reminders, portal messages)
+    bookingId: { type: ObjectId, ref: 'Booking', default: null },
+    customerId: { type: ObjectId, ref: 'Customer', default: null },
+    // The body carries a secret (setup / reset link): the log shows `redactedBody`, and `body`
+    // is overwritten with it once the message is settled.
+    sensitive: { type: Boolean, default: false },
+    redactedBody: { type: String, maxlength: 1600, default: null },
 
     encoding: { type: String, enum: ['gsm7', 'ucs2'], required: true },
     segments: { type: Number, min: 0, required: true },
@@ -46,5 +61,9 @@ smsMessageSchema.index({ orgId: 1, createdAt: -1, _id: -1 });
 smsMessageSchema.index({ orgId: 1, leadId: 1, createdAt: -1 });
 smsMessageSchema.index({ orgId: 1, to: 1, purpose: 1, createdAt: -1 }); // auto-reply once per 24 h
 smsMessageSchema.index({ orgId: 1, status: 1, createdAt: -1 });
+smsMessageSchema.index(
+  { orgId: 1, bookingId: 1, createdAt: -1 },
+  { partialFilterExpression: { bookingId: { $type: 'objectId' } } },
+);
 
 export const SmsMessage = mongoose.model('SmsMessage', smsMessageSchema);

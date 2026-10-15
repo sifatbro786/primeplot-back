@@ -10,5 +10,7 @@ import './handlers/sms.send.js';
 import './handlers/meta.fetchLead.js';
 import './handlers/meta.reconcile.js';
 import './handlers/documents.emailReceipt.js';
+import './handlers/reminders.run.js';
+import './handlers/payments.reconcile.js';
 
 export { enqueue, nudge, startScheduler, stopScheduler, tick } from './scheduler.js';

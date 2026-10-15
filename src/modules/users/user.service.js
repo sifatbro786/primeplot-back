@@ -44,7 +44,8 @@ const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 export async function listUsers(orgId, { q, role, status, page, limit }) {
   const filter = { orgId };
-  if (role) filter.role = role;
+  // Portal clients (B5) can number in thousands; the staff list shows them only when asked.
+  filter.role = role ?? { $ne: 'client' };
   if (status) filter.status = status;
   if (q) {
     const rx = new RegExp(escapeRegex(q), 'i');
@@ -159,6 +160,11 @@ export async function updateUser({ orgId, id, patch, ctx }) {
     ((roleChange && patch.role !== 'admin') || (statusChange && patch.status === 'disabled'))
   ) {
     await assertNotLastAdmin(orgId, user._id);
+  }
+
+  // B5: a client login belongs to a customer; it never becomes staff (or the reverse).
+  if (roleChange && (user.role === 'client' || patch.role === 'client')) {
+    throw new ForbiddenError('Client logins cannot change role', { code: 'CLIENT_ROLE_LOCKED' });
   }
 
   if (patch.name !== undefined) user.name = patch.name;

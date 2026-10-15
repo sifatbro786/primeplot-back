@@ -10,6 +10,7 @@ import { remainingOf, scheduleTotals } from '#modules/accounts/allocation.js';
 import { ensureCounter } from '#modules/accounts/counter.model.js';
 import * as customers from '#modules/customers/customer.service.js';
 import { voidDocuments } from '#modules/documents/document.service.js';
+import { autoInvite } from '#modules/portal/portalAccount.service.js';
 import { getProject } from '#modules/projects/project.service.js';
 import { announceUnitChanges, transitionUnit } from '#modules/units/unit.service.js';
 import { Booking } from './booking.model.js';
@@ -510,6 +511,12 @@ export async function transfer({ org, user, bookingId, input, ctx }) {
     await docs.issueTransferLetter(org, after, entry, user);
     await docs.issueBookingForm(org, after, user);
     if (after.allotment) await docs.issueAllotmentLetter(org, after, user);
+  });
+  // B5.1: the new holder gets a portal login (the old holder simply stops seeing the booking).
+  await autoInvite(org, {
+    holderId: after.customerId,
+    coApplicantIds: after.coApplicantIds ?? [],
+    by: user,
   });
   return getBookingDetail(orgId, user, b._id);
 }

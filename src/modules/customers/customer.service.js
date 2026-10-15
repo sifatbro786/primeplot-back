@@ -9,6 +9,7 @@ import { audit } from '#modules/audit/audit.service.js';
 import { assertPrivateMedia } from '#modules/media/media.service.js';
 import { getVisibleLead } from '#modules/leads/lead.service.js';
 import { ensureCounter, nextSeq } from '#modules/accounts/counter.model.js';
+import { syncPortalLogin } from '#modules/portal/portalAccount.service.js';
 import { Customer } from './customer.model.js';
 
 /**
@@ -194,6 +195,10 @@ export async function updateCustomer({ orgId, user, id, patch, ctx }) {
   const diff = diffFields(before, doc.toObject(), AUDITED);
   if (diff)
     await audit(ctx, 'customer.update', { entity: { type: 'Customer', id: doc._id }, diff });
+  // B5: the portal login signs in with this phone / e-mail and greets by this name.
+  if (['name', 'phone', 'email', 'locale'].some((k) => data[k] !== undefined)) {
+    await syncPortalLogin(orgId, doc.toObject());
+  }
   return toCustomer(doc.toObject());
 }
 

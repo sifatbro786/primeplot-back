@@ -14,13 +14,25 @@ const router = Router();
 // tightened policy must never lock existing users out.
 const loginPassword = z.string().min(1).max(PASSWORD_MAX);
 const token = z.string().min(20).max(100);
+// B5: e-mail OR phone. `email` stays for existing clients of the API; `identifier` takes either.
+const identifier = z.string().trim().min(3).max(254);
+const needsOne = (b) => Boolean(b.email || b.identifier);
+const oneOf = { message: 'Enter your e-mail or mobile number', path: ['identifier'] };
 
 router.post(
   '/login',
   limits.loginIp,
   limits.loginAccount,
   validate({
-    body: { email: zemail, password: loginPassword, remember: z.boolean().default(false) },
+    body: z
+      .object({
+        email: zemail.optional(),
+        identifier: identifier.optional(),
+        password: loginPassword,
+        remember: z.boolean().default(false),
+      })
+      .strict()
+      .refine(needsOne, oneOf),
   }),
   c.login,
 );
@@ -48,7 +60,12 @@ router.patch(
 router.post(
   '/password/forgot',
   limits.sensitive,
-  validate({ body: { email: zemail } }),
+  validate({
+    body: z
+      .object({ email: zemail.optional(), identifier: identifier.optional() })
+      .strict()
+      .refine(needsOne, oneOf),
+  }),
   c.forgotPassword,
 );
 router.post(

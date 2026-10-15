@@ -51,7 +51,7 @@ describe('permission checks', () => {
     const agent = await loginAgent(request, app, admin);
     const res = await agent
       .post('/api/v1/users')
-      .send({ name: 'Dup', email: exec.email, role: 'client' });
+      .send({ name: 'Dup', email: exec.email, role: 'sales_executive' });
     expect(res.status).toBe(409);
     expect(res.body.error.code).toBe('DUPLICATE');
   });
@@ -60,7 +60,10 @@ describe('permission checks', () => {
     const agent = await loginAgent(request, app, admin);
     const res = await agent.get('/api/v1/users?limit=2&page=1');
     expect(res.body.data).toHaveLength(2);
-    expect(res.body.meta).toMatchObject({ page: 1, limit: 2, total: 4, pages: 2 });
+    // B5: portal clients are left out unless ?role=client
+    expect(res.body.meta).toMatchObject({ page: 1, limit: 2, total: 3, pages: 2 });
+    const clients = await agent.get('/api/v1/users?role=client');
+    expect(clients.body.data.map((u) => u.id)).toEqual([String(client._id)]);
     const q = await agent.get(`/api/v1/users?q=${encodeURIComponent(exec.email)}`);
     expect(q.body.data.map((u) => u.id)).toEqual([String(exec._id)]);
     expect((await agent.get('/api/v1/users?q[$ne]=x')).status).toBe(422);

@@ -11,6 +11,10 @@ export const NOTIFICATION_TYPES = Object.freeze([
   'lead.sla_breached', // a new lead waited past its first-response time (to managers)
   'integration.error', // Meta / SMS stopped working (to admins)
   'cheque.bounced', // B4.2: a customer's cheque bounced (to the seller and cheque managers)
+  'payment_slip.submitted', // B5.1: a client uploaded a bank slip (to verifiers + the seller)
+  'profile_request.submitted', // B5.1: a client asked to change contact details (portal:manage)
+  'online_payment.received', // B5.2: SSLCommerz payment → receipt (to the seller)
+  'online_payment.review', // B5.2: a gateway payment needs a person (risk / mismatch / overpaid)
 ]);
 
 const TTL_DAYS = 90;

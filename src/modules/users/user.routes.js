@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { P, ROLES } from '#shared/auth/permissions.js';
+import { P, ROLES, STAFF_ROLES } from '#shared/auth/permissions.js';
 import { validate, zemail, zid } from '#shared/middleware/validate.js';
 import { created, noContent, ok } from '#shared/utils/response.js';
 import { offsetQuery } from '#shared/utils/pagination.js';
@@ -43,7 +43,8 @@ router.post(
       name,
       email: zemail,
       phone: phone.optional(),
-      role: z.enum(ROLES),
+      // Client logins are created from a customer (portal invite, B5), never by hand.
+      role: z.enum(STAFF_ROLES),
       locale: z.enum(['bn', 'en']).optional(),
     },
   }),
@@ -66,7 +67,7 @@ router.patch(
       .object({
         name: name.optional(),
         phone: phone.nullable().optional(),
-        role: z.enum(ROLES).optional(),
+        role: z.enum(STAFF_ROLES).optional(),
         status: z.enum(['active', 'disabled']).optional(),
         locale: z.enum(['bn', 'en']).optional(),
       })

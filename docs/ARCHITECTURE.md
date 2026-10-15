@@ -208,6 +208,17 @@ PrimePlot is a real-estate management and CRM platform for Bangladeshi real-esta
   - Generated PDFs are stored through the storage adapter (private) along with their hash.
   - *(B4.3, built)* Each document freezes a **snapshot** of everything it prints; `contentHash` = SHA-256 of the canonical JSON `{ type, number, snapshot }`. Status `valid → void` only (reversal, return, cancellation, transfer). The public verify response shows a masked holder name and no contact or ID data. Fonts are Fontsource OFL packages embedded as base64; the page loads nothing from the network.
 
+### 6.6b Customer portal, online payment & reminders *(B5, owner-approved 2026-10-15)*
+
+- **Client logins:** role `client`, one per customer (`customer.portalUserId` ↔ `user.customerId`). Sign-in by **mobile number or e-mail**; the e-mail is optional for clients (partial unique index). A phone shared by two logins is resolved by the password. Forgot-password by phone sends the link by SMS.
+- **Created at booking:** the holder's login is created after the booking (and after a transfer, for the new holder) with a one-time setup link (72 h) by **SMS and e-mail** (`portal.autoInvite`, on). Co-applicants are invited by staff (`POST /customers/:id/portal/invite`), or automatically with `portal.autoInviteCoApplicants`. Staff with `portal:manage` can switch a login off/on. The customer record stays the source of truth: name/phone/e-mail/language changes flow to the login.
+- **What a client sees:** every booking where they are holder or co-applicant; documents issued since they became holder (old papers with a previous holder's NID are not shown); receipts of the booking. Anything else is 404.
+- **Bank slips (D5):** client uploads a private `payment_slip` file and fills amount/date/account/reference → verification queue → staff approve (may correct amount/date to the bank statement) → one transaction writes a normal receipt (mode `slip`) and closes the slip; reject sends the reason by SMS + e-mail. Duplicate file / reference are flagged.
+- **Profile change requests:** contact details only (phone, alt phone, e-mail, addresses, occupation, organization); name, parents, NID/passport, DOB, TIN change at the office. One pending per customer; `portal:manage` approves (audited, login follows) or rejects.
+- **SSLCommerz (B5.2):** as §6.5. Callback base `API_PUBLIC_URL` (dev: Cloudflare quick tunnel — `docs/SSLCOMMERZ.md`). Minimum online amount `portal.onlineMinAmount` (৳1,000, or less when less is due). Held for **review** (no receipt, manager decides): `risk_level 1`, amount/currency mismatch, overpaid, booking no longer active. Reconcile job every 10 min (attempts 15 min – 72 h old; 3 h without result → expired). Refunds are made in the SSLCommerz panel (no refund API in v1).
+- **Reminders (B5.3):** rules = day offsets from the due date (default −7, 0, +3, +15; editable, max 8), send hour 10:00 Dhaka, SMS + e-mail to the holder in their language, one message per booking/rule/due date (summed), up to 2 days catch-up, delivery log with a unique key. Manual "remind now" once per booking per day.
+- **Analytics (B5.3):** read-only aggregations (inventory, sales, collections + dues + 3-month expected, buyer pipeline, portal); charts are drawn in F6.
+
 ### 6.7 Backend folder structure
 
 ```
@@ -221,10 +232,10 @@ primeplot-back/
 │  │  ├─ projects/ units/ floorplans/
 │  │  ├─ leads/ pipeline/ activities/
 │  │  ├─ customers/ bookings/ accounts/ documents/
-│  │  ├─ portal/ notifications/ reminders/
+│  │  ├─ portal/ payments/ notifications/ reminders/
 │  │  ├─ media/ analytics/
 │  │  └─ <module>/ <name>.routes.js .controller.js .service.js .model.js .validation.js
-│  ├─ integrations/     # meta/, sms/, email/, storage/ (local, s3 later), payments/sslcommerz/, pdf/
+│  ├─ integrations/     # meta/, sms/, email/, storage/ (local, s3 later), payments/sslcommerz.js, pdf/
 │  ├─ jobs/             # scheduler.js, registry.js, handlers/*.js
 │  ├─ sockets/
 │  └─ shared/           # middleware/, errors/, plugins/ (baseSchema), utils/ (money, phone, bnNumber, amountInWords)

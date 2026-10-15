@@ -955,3 +955,179 @@ Wrong state → `409 CHEQUE_STATE_CONFLICT { status }`.
 
 ### Env (new, optional)
 `PUBLIC_SITE_URL` (QR base, default `CLIENT_URL`), `PDF_CHROME_PATH` (use an installed Chrome/Chromium; default: the one `npm install` downloaded), `PDF_NO_SANDBOX` (true only when Chrome runs as root on a VPS), `PDF_TIMEOUT_MS` (30000).
+
+---
+
+## B5.1 — Customer portal: client logins, portal API, bank slips, profile requests
+
+### Sign-in changes (all roles)
+- `POST /auth/login` body: `{ identifier, password, remember }` — `identifier` = e-mail **or** mobile (`01712345678`, `+8801712345678`, Bangla digits, or `+44…`). `{ email, … }` still works. A phone shared by two logins (staff who bought a unit, spouses): the password decides.
+- `POST /auth/password/forgot` body: `{ identifier }` (or `{ email }`). Phone → reset link **by SMS** to that number; e-mail → by e-mail. Invited (never activated) logins get a fresh setup link instead. Always `202`.
+- `POST /auth/token/inspect` → `{ valid, email (masked) | null, phone (masked) | null, role: 'client'|'staff', expiresAt }` — the setup page sends clients to `/portal`.
+- Client logins have `role: 'client'`, permissions `portal:access` + `media:upload_private`, and may have **no e-mail** (`email: null`).
+- `GET /users` lists **staff only** unless `?role=client`. `POST/PATCH /users` accept staff roles only; a client login never changes role (`403 CLIENT_ROLE_LOCKED`).
+- Upgrade note: run `npm run db:indexes` once (users e-mail index became partial).
+
+### Client logins (staff) 🔒
+| Endpoint | Permission | Notes |
+|---|---|---|
+| `GET /customers/:id/portal` | bookings:read / read_all (+ visible customer) | `{ status: 'none'|'invited'|'active'|'disabled', userId, login: { email, phone } (masked), lastLoginAt, inviteSentAt, inviteExpiresAt }` |
+| `POST /customers/:id/portal/invite` body `{ force? }` | `bookings:create` | Creates the login if missing and sends the setup link (SMS + e-mail per settings, 72 h). `409 NOT_ON_A_BOOKING` unless holder/co-applicant of an active booking. → `{ status, userId, created, sent: { sms, email }, reason?: 'already_active'|'disabled'|'recently_sent'|'no_channel', portal }`. Resend throttle 10 min unless `force: true` |
+| `PATCH /customers/:id/portal` body `{ enabled }` | `portal:manage` | Disable ends every session at once; enable → `active` (or `invited` if no password yet). `409 PORTAL_NOT_INVITED` |
+
+Automatic: booking created → holder invited; transfer → new holder invited (setting `portal.autoInvite`, on). Co-applicants only with `portal.autoInviteCoApplicants` (off) or by the invite button. Customer edits of name/phone/e-mail/locale (staff edit or an approved request) update the login; a phone/e-mail change signs the client out.
+
+### Portal API 🔒 `portal:access` (client logins only) — `/portal`
+| Endpoint | Notes |
+|---|---|
+| `GET /portal/me` | `{ profile: PortalProfile, pendingProfileRequest, features: { onlinePayment, onlineMinAmount, slipUpload }, bankAccounts: [{ id, name, bankName, branch, accountName, accountNo, routingNo }], company: { name, nameBn, phone, email, address, addressBn } }` |
+| `PATCH /portal/me` `{ locale }` | SMS/e-mail language → `204` |
+| `GET /portal/bookings` | `PortalBookingSummary[]` — holder **or** co-applicant, active first |
+| `GET /portal/bookings/:id` | `PortalBooking` (404 if not theirs) |
+| `GET /portal/dues?days=60` | `{ asOf, totals: { overdue, dueNow }, items: [ScheduleItem + { bookingId, bookingNo, unitCode, project }] }` — unpaid, due within `days` or overdue |
+| `GET /portal/documents/:id/html?locale=` | Same A4 page as staff; only **valid** documents of their bookings issued since they became holder |
+| `GET /portal/documents/:id/pdf?locale=&download=1` | PDF |
+| `POST /portal/bookings/:id/slips` | `PaymentSlipCreate` → `201 Slip` |
+| `GET /portal/slips?status=&cursor=&limit=` | own slips |
+| `POST /portal/slips/:id/withdraw` | pending only (`409 SLIP_NOT_PENDING`) |
+| `GET /portal/profile-requests` | own, newest 20 |
+| `POST /portal/profile-requests` | `ProfileRequestCreate` → `201` (`409 PROFILE_REQUEST_PENDING`, `409 NO_CHANGES`) |
+| `POST /portal/profile-requests/:id/withdraw` | |
+| `POST /portal/bookings/:id/pay` | B5.2 (below) |
+| `GET /portal/payments`, `GET /portal/payments/:id` | B5.2 (below) |
+
+```jsonc
+// PortalProfile — NID / passport shown masked, read-only
+{ "id", "customerNo", "name", "nameBn", "phone", "altPhone", "email", "presentAddress", "permanentAddress",
+  "foreignAddress", "occupation", "organization", "locale", "nid": "•••• 4567", "passportNo": null }
+// PortalBookingSummary
+{ "id", "bookingNo", "project": { "id", "name", "nameBn", "slug", "kind", "code", "handoverAt", "cover": Media|null },
+  "unitCode", "kind", "role": "holder|co_applicant", "holderName", "bookingDate", "status", "stage",
+  "contractTotal", "totals": { "total", "paid", "outstanding", "dueNow", "overdue", "nextDue": { "itemId", "dueDate", "amount" }|null } }
+// PortalBooking = summary +
+{ "price": { "listTotal", "discount", "contractTotal" }, "planName", "schedule": [ScheduleItem],
+  "receipts": [{ "id", "receiptNo", "date", "amount", "mode", "reference", "status" }],
+  "documents": [{ "id", "type", "number", "date", "locale", "verifyUrl" }],
+  "slips": [Slip],            // pending + rejected (latest 10)
+  "onlinePayments": [OnlinePayment], // initiated + review
+  "allotment": { "date" }|null, "registration": { "date", "deedNo" }|null, "handover": { "date" }|null,
+  "cancellation": { "date", "paid", "deduction", "refundable", "refunded" }|null,
+  "constructionUpdates": [ConstructionUpdate], // latest 3 published
+  "canPayOnline": true, "canUploadSlip": true }
+// PaymentSlipCreate — upload the file first: POST /media (multipart) purpose=payment_slip
+{ "amount": 20000000, "paidOn": "2026-10-15", "channel": "bank_transfer|cash_deposit|pay_order",
+  "bankAccountId": "…",   // required unless pay_order (from /portal/me bankAccounts)
+  "reference": "FT…",     // required for bank_transfer
+  "payerBank": "BRAC Bank", "mediaId": "…", "note": "…" }
+// Slip
+{ "id", "bookingId", "bookingNo", "unitCode", "amount", "paidOn", "channel", "bankAccountId", "reference", "payerBank",
+  "mediaId", "note", "status": "pending|approved|rejected|withdrawn", "rejectReason", "reviewedAt",
+  "receipt": { "id", "receiptNo" }|null, "createdAt" }
+// ProfileRequestCreate — contact details only (name/NID/parents/DOB/TIN change at the office)
+{ "phone", "altPhone", "email", "presentAddress", "permanentAddress", "foreignAddress", "occupation", "organization", "note" }
+// ProfileRequest
+{ "id", "customerId", "customerName", "changes": { "phone": "+8801…" }, "before": { "phone": "+8801…" }, "note",
+  "status": "pending|approved|rejected|withdrawn", "rejectReason", "reviewedAt", "reviewedBy", "createdAt" }
+```
+Slip rules: payment date not in the future nor before the booking; amount ≤ outstanding − other pending slips (`422 OVERPAYMENT`); ≤ 5 pending per customer (`409 TOO_MANY_PENDING_SLIPS`); the file must be the client's own `payment_slip` upload (`422 INVALID_MEDIA`) and unused (`409 SLIP_FILE_REUSED`); `409 SLIPS_DISABLED` when switched off.
+
+### Slip verification queue 🔒 `/payment-slips`
+| Endpoint | Permission | Notes |
+|---|---|---|
+| `GET /payment-slips?status=&bookingId=&cursor=&limit=` | `payment_slips:verify` / read_all (all) · seller (own bookings) | `Slip + customerName` |
+| `GET /payment-slips/:id` | same | `+ { customerId, file: Media (private URLs), booking: { id, status, outstanding }, warnings: [{ code: 'SAME_FILE'|'SAME_REFERENCE', slips }, { code: 'MORE_THAN_OUTSTANDING' }], review }` |
+| `POST /payment-slips/:id/approve` `{ amount?, date?, bankAccountId?, reference?, note? }` | `payment_slips:verify` | Correct to the bank statement. ONE transaction: receipt (mode `slip`, oldest-first allocation, ledger) + slip → approved. The back-date window does not apply (money date). Client: SMS + the normal receipt e-mail. `409 SLIP_NOT_PENDING`, `422 OVERPAYMENT` |
+| `POST /payment-slips/:id/reject` `{ reason }` | `payment_slips:verify` | Client: SMS + e-mail with the reason |
+
+Notification `payment_slip.submitted` → verifiers + the seller: `{ slipId, bookingId, bookingNo, unitCode, customerName, amount }`.
+
+### Profile change requests 🔒 `portal:manage` — `/profile-requests`
+`GET /profile-requests?status=&customerId=` · `GET /:id` (`+ current`: today's values of the changed fields) · `POST /:id/approve` (applied to the customer, audited as `customer.update` via `profile_request`, login follows) · `POST /:id/reject { reason }`. Client gets an SMS either way. Notification `profile_request.submitted` → `portal:manage` users.
+
+### Settings (addition) — `PATCH /accounts/settings`
+```jsonc
+"portal": { "autoInvite": true, "autoInviteCoApplicants": false, "inviteSms": true, "inviteEmail": true,
+            "slipUpload": true, "onlinePayment": true, "onlineMinAmount": 100000, "resultSms": true }
+```
+
+### New permissions
+`portal:manage`, `online_payments:review`, `reminders:manage`, `analytics:read` — sales manager + admin.
+
+---
+
+## B5.2 — SSLCommerz online payment
+
+Setup and sandbox test: `docs/SSLCOMMERZ.md`. Hidden unless `SSLCZ_STORE_ID` + `SSLCZ_STORE_PASS` are set (`features.onlinePayment`) and `portal.onlinePayment` is on.
+
+### Flow
+1. `POST /portal/bookings/:id/pay { amount }` (+ optional `Idempotency-Key`) → `201 { payment: OnlinePayment, redirectUrl }` → the page does `window.location = redirectUrl`. Rules: `min(onlineMinAmount, payable) ≤ amount ≤ payable` where payable = outstanding − pending slips (`422 AMOUNT_TOO_SMALL|OVERPAYMENT|NOTHING_TO_PAY`, `details: { min, max, outstanding }`); ≤ 3 unfinished attempts per booking in 30 min (`409 TOO_MANY_OPEN_PAYMENTS`); gateway down → `502 GATEWAY_ERROR`.
+2. SSLCommerz → browser `POST /webhooks/sslcommerz/{success|fail|cancel}` → `303` to `<CLIENT_URL>/<locale>/portal/payments/<id>?result=success|fail|cancel` (unknown tran → `/<locale>/portal`). The page polls `GET /portal/payments/:id` until `status ≠ initiated`.
+3. SSLCommerz → server `POST /webhooks/sslcommerz/ipn` → `200 OK` (`500` makes SSLCommerz retry).
+4. Either trigger with a `val_id` → **Order Validation API**. `tran_id`, amount (to the poisha) and BDT must match; `risk_level = 1` → held. Then ONE receipt (mode `online`, `reference` = bank tran id, `instrumentNo` = tran id, idempotency key `sslcz:<tran_id>`) + notification `online_payment.received` to the seller + client SMS.
+5. Job `payments.reconcile` (every 10 min): attempts 15 min – 72 h old without a result → Transaction Query API → VALID → step 4; nothing after 3 h → `expired`.
+
+### Shapes
+```jsonc
+// OnlinePayment (portal)
+{ "id", "tranId": "PP…(26)", "bookingId", "bookingNo", "unitCode", "amount", "currency": "BDT",
+  "status": "initiated|paid|review|failed|cancelled|expired|rejected",
+  "receipt": { "id", "receiptNo" }|null, "method": "BKASH-BKash"|null, "paidAt", "createdAt" }
+// Staff adds
+{ "customerId", "customerName", "projectId", "reviewReason": "RISK|AMOUNT_MISMATCH|OVERPAYMENT|BOOKING_NOT_ACTIVE|RECEIPT_FAILED"|null,
+  "gateway": { "valId", "bankTranId", "cardType", "cardBrand", "cardIssuer", "riskLevel", "riskTitle", "tranDate",
+               "validatedAmount", "validationStatus", "validatedAt" },
+  "review": { "at", "by": { "id", "name" }, "decision": "approved|rejected", "note" }|null,
+  "events": [{ "at", "source": "init|success|fail|cancel|ipn|reconcile|staff", "status", "note" }], "lastCheckedAt" }
+```
+
+### Staff 🔒 `/online-payments`
+| Endpoint | Permission | Notes |
+|---|---|---|
+| `GET /online-payments?status=&bookingId=&cursor=&limit=` | `online_payments:review` / read_all (all) · seller (own) | |
+| `GET /online-payments/:id` | same | |
+| `POST /online-payments/:id/recheck` | `online_payments:review` | Ask SSLCommerz now (a held payment stays held) |
+| `POST /online-payments/:id/approve` `{ note? }` | `online_payments:review` | `review` → receipt. `409 AMOUNT_MISMATCH` (reject + refund instead), `422 OVERPAYMENT`, `409 PAYMENT_NOT_IN_REVIEW` |
+| `POST /online-payments/:id/reject` `{ reason }` | `online_payments:review` | `review` → `rejected`; refund from the SSLCommerz panel; client SMS |
+
+Notification `online_payment.review` → `online_payments:review` users `{ paymentId, bookingId, bookingNo, customerName, amount, reason }`.
+`GET /integrations` adds `sslcommerz: { enabled, live, ipnUrl, publicApi }`.
+
+### Env
+`SSLCZ_STORE_ID`, `SSLCZ_STORE_PASS`, `SSLCZ_IS_LIVE` (false = sandbox), `API_PUBLIC_URL` (callback base; dev: tunnel). Scripts: `npm run sslcz:check [-- --session | --validate <val_id> | --query <tran_id>]`.
+
+---
+
+## B5.3 — Reminders & analytics
+
+### Reminder engine
+- Rules (accounts settings `reminders.rules`, default): `before_7` (−7), `due_day` (0), `overdue_3` (+3), `overdue_15` (+15) — days from the due date; each with `enabled`, `sms`, `email`. `reminders.enabled`, `reminders.sendHour` (Dhaka, default 10, 7–21).
+- Job `reminders.run` every 30 min; acts after `sendHour`. One message per (booking, rule, due date); several items due the same day are summed. A rule still fires up to 2 days late, never once the next rule's day arrives. Paid / cancelled / not-yet-called items never get one.
+- To the holder: SMS (BD mobile) + e-mail (template `installment_reminder`, with the portal link), in their language. Log: `reminder_logs` (unique → idempotent); SMS also in the SMS log with purpose `reminder` and `bookingId`.
+
+| Endpoint | Permission | Notes |
+|---|---|---|
+| `GET /reminders/log?bookingId=&rule=&from=&to=&cursor=&limit=` | `reminders:manage` or `reports:read` | `ReminderLog[]` |
+| `GET /reminders/preview` | `reminders:manage` | What today's run would send (sends nothing): `{ today, planned, alreadySent, items: [{ bookingId, bookingNo, unitCode, customer, rule, kind, dueDate, amount, channels: { sms, email } }] }` |
+| `POST /reminders/run` | `reminders:manage` | Run now (ignores the hour, still once each) → `{ today, planned, sent, alreadySent }` |
+| `POST /bookings/:id/remind` | `reminders:manage` or `receipts:create` (+ visible booking) | Everything due/overdue (or the next item) → `201 ReminderLog` (rule `manual`); once per booking per day (`409 ALREADY_REMINDED_TODAY`, `409 NOTHING_DUE`) |
+
+```jsonc
+// ReminderLog
+{ "id", "bookingId", "bookingNo", "unitCode", "customer": { "id", "name" }, "rule", "offsetDays", "kind": "upcoming|today|overdue",
+  "dueDate", "runDate", "amount", "totalOverdue", "items": [{ "itemId", "label", "amount" }], "locale",
+  "sms": { "status": "queued|skipped|off", "reason", "smsId" }, "email": { "status", "reason", "smsId": null },
+  "by": { "id", "name" }|null, "createdAt" }
+// settings
+"reminders": { "enabled": true, "sendHour": 10, "rules": [{ "key": "before_7", "offsetDays": -7, "enabled": true, "sms": true, "email": true }, …] }
+```
+
+### Analytics 🔒 `analytics:read` or `reports:read` — `/analytics`
+Query: `from`, `to` (Dhaka dates; default the last 12 months), `projectId`. Range ≤ 3 years (`400 INVALID_RANGE`). Months with nothing are returned as 0.
+| Endpoint | Data |
+|---|---|
+| `GET /analytics/inventory` | `{ units, byStatus, sold, projects: [{ project, units, byStatus, sold, soldPct, availableValue }] }` (expired holds count as available; `projectId` only) |
+| `GET /analytics/sales` | `{ from, to, totals: { bookings, value, discount, cancelled }, byMonth: [{ period: 'YYYY-MM', bookings, value, discount }], bySeller (top 10), byProject }` |
+| `GET /analytics/collections` | `{ collected: { count, amount }, refunds, byMonth: [{ period, count, amount }], byMode, dues: { asOf, outstanding, dueNow, overdue, bookingsOverdue, buckets }, expected: [{ period, amount }] (next 3 months) }` |
+| `GET /analytics/pipeline` | buyer pipeline: `{ stages: [{ id, key, name, nameBn, count }], openTotal, newBySource, newTotal, won, lost, winRatePct, lostReasons, byMonth: [{ period, leads, won }] }` |
+| `GET /analytics/portal` | `{ clients: { invited, active, disabled }, slips: { pending: { count, amount }, … }, onlinePayments: { paid: { count, amount }, … } }` |
+| `GET /analytics/overview` | all of the above in one call |

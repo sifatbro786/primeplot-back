@@ -18,9 +18,10 @@ export function limiter({ windowMs, limit, key = 'ip', name }) {
     keyGenerator(req) {
       const ip = ipKeyGenerator(req.ip ?? '', 56);
       if (key === 'ip+email') {
-        const email =
-          typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
-        return `${ip}|${email.slice(0, 254)}`;
+        // B5: clients may sign in with a phone number (`identifier`) instead of an e-mail.
+        const raw = req.body?.identifier ?? req.body?.email;
+        const id = typeof raw === 'string' ? raw.trim().toLowerCase().replace(/[\s-]/g, '') : '';
+        return `${ip}|${id.slice(0, 254)}`;
       }
       return ip;
     },

@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { env } from '#config/env.js';
 import { getIntegrationConfig } from '#integrations/config.js';
 import { smsInfo } from '#integrations/sms/index.js';
 import { P } from '#shared/auth/permissions.js';
@@ -38,6 +39,13 @@ router.get('/', admin, async (req, res) => {
     email: { enabled: getIntegrationConfig(req.orgId, 'email').enabled },
     sms: { ...smsInfo(req.orgId), thisMonth: sms },
     meta: metaStatus,
+    // B5.2 — keys stay in .env; this only says whether they are there and where SSLCommerz calls.
+    sslcommerz: {
+      enabled: getIntegrationConfig(req.orgId, 'payment').enabled,
+      live: getIntegrationConfig(req.orgId, 'payment').isLive,
+      ipnUrl: `${env.apiUrl}/api/v1/webhooks/sslcommerz/ipn`,
+      publicApi: !/localhost|127\.0\.0\.1/.test(env.apiUrl),
+    },
   });
 });
 

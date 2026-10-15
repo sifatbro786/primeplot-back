@@ -19,16 +19,22 @@ import metaWebhookRoutes from '#modules/meta/metaWebhook.routes.js';
 import customerRoutes from '#modules/customers/customer.routes.js';
 import { bookingRouter, planRouter } from '#modules/bookings/booking.routes.js';
 import { accountsRouter, receiptRouter } from '#modules/accounts/accounts.routes.js';
-import {
-  bookingActions,
-  chequeRouter,
-  reportRouter,
-} from '#modules/bookings/lifecycle.routes.js';
+import { bookingActions, chequeRouter, reportRouter } from '#modules/bookings/lifecycle.routes.js';
 import {
   bookingDocuments,
   documentRouter,
   verifyRouter,
 } from '#modules/bookings/document.routes.js';
+import portalRoutes from '#modules/portal/portal.routes.js';
+import {
+  customerPortalRouter,
+  profileRequestRouter,
+  slipRouter,
+} from '#modules/portal/portalStaff.routes.js';
+import onlinePaymentRoutes from '#modules/payments/payment.routes.js';
+import sslczWebhookRoutes from '#modules/payments/sslczWebhook.routes.js';
+import { bookingRemindRouter, reminderRouter } from '#modules/reminders/reminder.routes.js';
+import analyticsRoutes from '#modules/analytics/analytics.routes.js';
 import internalRoutes from '#jobs/jobs.routes.js';
 import { limits } from '#shared/middleware/rateLimit.js';
 import { originGuard } from '#shared/middleware/originGuard.js';
@@ -41,8 +47,9 @@ const api = Router();
 api.use('/health', healthRoutes);
 api.use('/internal', internalRoutes);
 
-// Cross-origin webhooks/callbacks (Meta; SSLCommerz later) — before originGuard and resolveOrg.
+// Cross-origin webhooks/callbacks (Meta, SSLCommerz) — before originGuard and resolveOrg.
 api.use('/webhooks/meta', metaWebhookRoutes);
+api.use('/webhooks/sslcommerz', sslczWebhookRoutes); // B5.2
 
 api.use(limits.api);
 api.use(originGuard);
@@ -62,6 +69,7 @@ api.use('/leads', leadRoutes);
 api.use('/notifications', notificationRoutes);
 api.use('/integrations', integrationRoutes);
 api.use('/site', siteRoutes);
+api.use('/customers', customerPortalRouter); // B5.1 /customers/:id/portal…
 api.use('/customers', customerRoutes); // B4
 api.use('/bookings', bookingRouter);
 api.use('/bookings', bookingActions); // B4.2
@@ -72,6 +80,13 @@ api.use('/documents', documentRouter);
 api.use('/payment-plans', planRouter);
 api.use('/receipts', receiptRouter);
 api.use('/accounts', accountsRouter);
+api.use('/portal', portalRoutes); // B5.1 customer portal (client logins)
+api.use('/payment-slips', slipRouter);
+api.use('/profile-requests', profileRequestRouter);
+api.use('/online-payments', onlinePaymentRoutes); // B5.2
+api.use('/reminders', reminderRouter); // B5.3
+api.use('/bookings', bookingRemindRouter);
+api.use('/analytics', analyticsRoutes);
 api.use('/public/verify', verifyRouter); // B4.3 QR verification — not cached
 api.use('/public/leads', publicLeadRoutes); // website enquiry form — before the cached catalogue
 api.use('/public', publicRoutes); // website catalogue — no auth

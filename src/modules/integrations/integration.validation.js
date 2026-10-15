@@ -49,6 +49,7 @@ export const zSmsList = {
   status: z.enum(SMS_STATUSES).optional(),
   purpose: z.enum(SMS_PURPOSES).optional(),
   leadId: zid.optional(),
+  bookingId: zid.optional(), // B5: reminders / portal messages of one booking
   ...cursorQuery,
 };
 
