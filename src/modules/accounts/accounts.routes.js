@@ -32,9 +32,23 @@ accountsRouter.get('/settings', anyAccountsRead, async (req, res) => {
   ok(res, accounts.toAccountSettings(await accounts.getAccountSettings(req.orgId)));
 });
 
+/**
+ * Settings write: accounts:settings (admin) for everything; reminders:manage (managers) may
+ * change the reminder rules alone (F6.3) — the rest of the accounts policy stays admin-only.
+ */
+const settingsWrite = (req, res, next) => {
+  const p = req.user.permissions;
+  if (p.has(P.ACCOUNTS_SETTINGS)) return next();
+  const keys = Object.keys(req.body ?? {}).filter((k) => k !== 'version');
+  if (p.has(P.REMINDERS_MANAGE) && keys.length > 0 && keys.every((k) => k === 'reminders')) {
+    return next();
+  }
+  throw new ForbiddenError();
+};
+
 accountsRouter.patch(
   '/settings',
-  authorize(P.ACCOUNTS_SETTINGS),
+  settingsWrite,
   validate({ body: zSettingsPatch }),
   async (req, res) => {
     ok(

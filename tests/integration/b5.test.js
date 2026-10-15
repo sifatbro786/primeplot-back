@@ -785,6 +785,37 @@ describe('reminders', () => {
         .skipped,
     ).toBe('disabled');
   });
+
+  it('managers may change the reminder rules, nothing else in accounts settings', async () => {
+    const s = (await M.get('/api/v1/accounts/settings')).body.data;
+    const rules = [
+      { key: 'before_3', offsetDays: -3, enabled: true, sms: true, email: false },
+      { key: 'overdue_7', offsetDays: 7, enabled: true, sms: true, email: true },
+    ];
+    const up = await M.patch('/api/v1/accounts/settings').send({
+      version: s.version,
+      reminders: { sendHour: 11, rules },
+    });
+    expect(up.status).toBe(200);
+    expect(up.body.data.reminders).toMatchObject({ sendHour: 11, rules });
+    const v = up.body.data.version;
+    expect(
+      (await M.patch('/api/v1/accounts/settings').send({ version: v, chequeBounceFee: 0 })).status,
+    ).toBe(403);
+    expect(
+      (
+        await M.patch('/api/v1/accounts/settings').send({
+          version: v,
+          reminders: { enabled: false },
+          portal: { slipUpload: false },
+        })
+      ).status,
+    ).toBe(403);
+    expect(
+      (await E.patch('/api/v1/accounts/settings').send({ version: v, reminders: { sendHour: 9 } }))
+        .status,
+    ).toBe(403);
+  });
 });
 
 // ── Analytics ───────────────────────────────────────────────────────────────────

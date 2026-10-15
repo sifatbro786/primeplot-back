@@ -9,9 +9,9 @@
 
 | | |
 |---|---|
-| **Current phase** | **F6.1 + F6.2 code complete** (customer portal UI + staff review screens). Next: owner checks F6.1/F6.2 against the real API, then **F6.3 + F6.4** (reminder settings + delivery log, analytics dashboard) |
-| **Last completed** | F6.1 + F6.2 together — 2026-10-15 (B5 the same day) |
-| **Next step** | Owner: backend `npm test` (b5.test.js has 1 new case) → `npm run seed:sales` buyer → staff "Send invite" on the customer page → set the password from the SMS/e-mail link → walk the portal on a phone (pay, slip, profile request) → approve them under **Customer portal** in the dashboard. SSLCommerz sandbox: keys + tunnel per `docs/SSLCOMMERZ.md`. Then **F6.3 + F6.4** |
+| **Current phase** | **F6 code complete** (portal, staff review, reminders, analytics). Next: owner checks F6 against the real API, then **Phase H** (hardening & deploy) |
+| **Last completed** | F6.3 + F6.4 + two UI fixes (menus, tab bars) — 2026-10-15 |
+| **Next step** | Owner: **frontend `npm install`** (new: `recharts`, `react-is`) → backend `npm test` (b5.test.js: 2 new cases) → open Reminders (rules, today, log) and Analytics with `seed:sales` data → `npm run seed:sales` buyer → staff "Send invite" on the customer page → set the password from the SMS/e-mail link → walk the portal on a phone (pay, slip, profile request) → approve them under **Customer portal** in the dashboard. SSLCommerz sandbox: keys + tunnel per `docs/SSLCOMMERZ.md`. Then **Phase H** scope proposal |
 | **Blocker** | None. D3/D4 still open (not blocking) |
 
 ---
@@ -193,8 +193,9 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 ### F6: Portal + Reminders + Analytics (Frontend)
 - [x] F6.1 Portal UI (mobile-first, passbook look) + Pay Now (SSLCommerz, shown only when enabled) + bank slip + profile requests + phone/e-mail sign-in
 - [x] F6.2 Staff: bank-slip queue, online payments (held for review), profile requests, portal login card on the customer page, "Remind now" on the booking page, bell texts
-- [ ] Reminder settings & delivery log
-- [ ] Analytics dashboard (Recharts)
+- [x] F6.3 Reminders page (today's preview + send now, delivery log, rules editor with timeline, send hour, on/off) + portal settings in Accounts › Settings
+- [x] F6.4 Analytics dashboard (Recharts; period + project filters, chart ⇄ table on every card)
+- [x] UI fixes (owner): action menus no longer add a scrollbar to tables/drawers; tab bars no longer show a stray vertical scrollbar
 
 ### Phase H: Hardening & Deploy
 - [ ] Index review, load test (hold race), backup plan
@@ -214,6 +215,14 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 ---
 
 ## 📝 Session Log (newest first)
+
+### 2026-10-15 (19): F6.3 + F6.4 — reminders, portal settings, analytics + two UI fixes
+- **Owner feedback fixed:** (1) the ⋯ action menu opened inside the table's scroll box and made it scroll — `components/ui/Menu.js` now opens in the browser **top layer** (Popover API) at fixed coordinates next to the trigger, flips above when there is no room, follows scrolling, Esc closes only the menu (not a drawer); falls back to the old absolute list on old browsers. Every ⋯ menu in the app uses this component. (2) tab bars showed a stray vertical scrollbar (the tab's −1px underline under `overflow-x:auto`) — new utility `scroll-x` (overflow-y hidden, scrollbar hidden, still swipeable) on every tab bar and chip row: accounts, booking, project, reports, portal booking, cheque views, review queues, lead filters, pipeline columns, wizard steps, public floor switcher.
+- **Backend (small):** `PATCH /accounts/settings` — managers (`reminders:manage`) may send `reminders` alone; everything else stays `accounts:settings` (admin). 1 new case in `b5.test.js`; API.md B5.1 settings.
+- **F6.3:** `/dashboard/reminders` (nav: Customer portal › Reminders; `reminders:manage` or `reports:read`): **Today** — what today's run would send (buyer, rule, due date, amount, SMS/e-mail or "no channel"), "Send now" with a confirm; **Delivery log** — rule/date filters, SMS + e-mail status with the skip reason, manual reminders by whom; **Rules** — on/off, send hour (07–21 Dhaka), up to 8 rules as "N days before / on the due date / N days after" with active/SMS/e-mail, a drafting-style timeline of the reminder days around a due date, duplicate-day and range checks; rule keys follow the offset (`before_7`, `due_day`, `overdue_3`). Accounts › Settings gains **Customer portal** (auto-invite holder / co-applicants, invite by SMS/e-mail, slips, online payment + minimum, result SMS) — only changed fields are sent.
+- **F6.4:** `/dashboard/analytics` (nav: Sales › Analytics; `analytics:read` or `reports:read`): period (12 months / 6 months / this fiscal year / custom) + project filter in the URL; headline strip (sales, collected, still owed + overdue, units sold %, lead win rate — plain numbers); sales by month; money in (collected + next 3 months expected, hatched); overdue by age (clay ramp); stock sold by project (+ unsold value, status chips); open leads by stage + lost reasons; new leads by source; top sellers; how buyers paid (+ refunds); customer portal tiles linking to the queues. Every card has a chart ⇄ table switch. New deps: `recharts@3.10.1`, `react-is`.
+- **Verified in sandbox:** ESLint (whole front repo; backend `src` + `tests`), esbuild, i18n check (0 missing, ~180 new keys BN/EN), dataviz palette validator (series pair + ordinal ramp pass), `next build`, backend 203 unit tests. Playwright: **29 new checks** (menu keeps the table box size, stays on screen at 1440 and 390 px, sits in the top layer, Esc; no vertical scrollbar on tab bars; portal settings read-only for a manager, admin patch sends only the 2 changed portal fields; reminders today/send-now/log/rules — PATCH carries only `reminders`, keys from offsets, sorted, duplicate day refused; analytics tiles, columns, hatched expected bars, tooltip, table view, 6-month query, project filter, no overflow at 390 px) + the F6.1/F6.2 suite again (60/60).
+- **Not verified:** real API end to end (owner). Known limit: the analytics FY preset assumes July–June.
 
 ### 2026-10-15 (18): F6.1 + F6.2 — customer portal UI + staff review screens
 - **Scope:** owner asked for F6.1 + F6.2 together (F6.3 + F6.4 next). Portal design direction asked first → owner chose **"passbook / deed"** (ARCHITECTURE §7).

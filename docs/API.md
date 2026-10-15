@@ -1046,6 +1046,7 @@ Notification `payment_slip.submitted` → verifiers + the seller: `{ slipId, boo
 `GET /profile-requests?status=&customerId=` · `GET /:id` (`+ current`: today's values of the changed fields) · `POST /:id/approve` (applied to the customer, audited as `customer.update` via `profile_request`, login follows) · `POST /:id/reject { reason }`. Client gets an SMS either way. Notification `profile_request.submitted` → `portal:manage` users.
 
 ### Settings (addition) — `PATCH /accounts/settings`
+Who may write *(F6.3)*: `accounts:settings` (admin) — anything; `reminders:manage` (managers) — a body with **only** `version` + `reminders`; any other key → `403`.
 ```jsonc
 "portal": { "autoInvite": true, "autoInviteCoApplicants": false, "inviteSms": true, "inviteEmail": true,
             "slipUpload": true, "onlinePayment": true, "onlineMinAmount": 100000, "resultSms": true }
