@@ -194,6 +194,17 @@ export async function updateUser({ orgId, id, patch, ctx }) {
 export async function updateOwnProfile({ orgId, userId, patch, ctx }) {
   const user = await User.findOne({ orgId, _id: userId });
   if (!user) throw new NotFoundError('User not found');
+  // B5: a client's name and phone belong to the customer record (the phone is also their login);
+  // they change through a profile request (portal) or at the office — never here.
+  if (
+    user.role === 'client' &&
+    ((patch.name !== undefined && patch.name !== user.name) ||
+      (patch.phone !== undefined && (patch.phone || null) !== (user.phone ?? null)))
+  ) {
+    throw new ForbiddenError('Contact details change through a profile request', {
+      code: 'CLIENT_PROFILE_LOCKED',
+    });
+  }
   const before = user.toObject();
   if (patch.name !== undefined) user.name = patch.name;
   if (patch.phone !== undefined) user.phone = phoneOrThrow(patch.phone);

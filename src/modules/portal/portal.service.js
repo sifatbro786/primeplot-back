@@ -19,6 +19,8 @@ import { OnlinePayment } from '#modules/payments/onlinePayment.model.js';
 import { toOnlinePayment } from '#modules/payments/payment.serialize.js';
 import { Project } from '#modules/projects/project.model.js';
 import { listActiveStaffWith } from '#modules/users/user.service.js';
+import { User } from '#modules/users/user.model.js';
+import { invalidateUser } from '#modules/auth/authState.js';
 import { P } from '#shared/auth/permissions.js';
 import { PaymentSlip } from './paymentSlip.model.js';
 import { PROFILE_FIELDS, ProfileRequest } from './profileRequest.model.js';
@@ -135,6 +137,9 @@ export async function getMe(org, user) {
 export async function setLocale({ org, user, locale, ctx }) {
   const c = await portalCustomer(org._id, user);
   await Customer.updateOne({ orgId: org._id, _id: c._id }, { $set: { locale } });
+  // The login's UI language follows (one setting for the client, not two).
+  await User.updateOne({ orgId: org._id, _id: user.id }, { $set: { locale } });
+  invalidateUser(user.id);
   await audit(ctx, 'portal.locale', { entity: { type: 'Customer', id: c._id }, meta: { locale } });
 }
 

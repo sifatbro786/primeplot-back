@@ -268,6 +268,7 @@ primeplot-back/
   - Shape: radii 2px (tags, images) / 4px (controls) / 6px (cards). No pills except avatars and filter chips. Eyebrow labels (letter-spaced, no leading rule — owner rejected the rule as AI-template), hairline dividers, faint blueprint grid.
   - Motion: short ease-out-quint transitions; GSAP only for public-site scroll; `prefers-reduced-motion` respected.
   - Tokens live in `styles/theme.css`; the living style guide is `/[locale]/dev/design` (dev only).
+- **Customer portal look** *(owner choice 2026-10-15, F6.1)*: "passbook / deed" — the portal shell is `.portal` (warm `paper` + `grain`, small-text tokens one shade darker like `.site`); each unit is a dark olive **deed folder** card (`deed` utility: inner hairline frame, folded corner); the schedule is a passbook ledger (dashed rules, a rotated **PAID** stamp — `paid-stamp`); receipts are tear-off slips (`perforated`). Staff screens keep the dashboard look.
 - **i18n routing** *(F1)*: locale is a root URL segment (`/bn/…`, `/en/…`, default `bn`) via next-intl + `next/root-params`, remembered in the `pp_locale` cookie. Reason: with `cacheComponents`, a cookie-driven `<html lang>` would make every page request-bound; URL locales also give crawlable hreflang pages.
 
 ```

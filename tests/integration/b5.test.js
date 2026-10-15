@@ -510,6 +510,17 @@ describe('profile change requests', () => {
     });
     expect(no.body.data).toMatchObject({ status: 'rejected', rejectReason: 'Bring your papers' });
   });
+
+  it('a client cannot change name/phone through /auth/me; the language follows the portal setting', async () => {
+    const c = await rahimClient();
+    const locked = await c.patch('/api/v1/auth/me').send({ phone: '01799999999' });
+    expect(locked.status).toBe(403);
+    expect(locked.body.error.code).toBe('CLIENT_PROFILE_LOCKED');
+    expect((await c.patch('/api/v1/auth/me').send({ name: 'Someone Else' })).status).toBe(403);
+    expect((await c.patch('/api/v1/portal/me').send({ locale: 'en' })).status).toBe(204);
+    expect((await c.get('/api/v1/auth/me')).body.data.user.locale).toBe('en');
+    expect((await Customer.findOne({ orgId: org._id, _id: rahim.id }).lean()).locale).toBe('en');
+  });
 });
 
 // ── SSLCommerz ──────────────────────────────────────────────────────────────────

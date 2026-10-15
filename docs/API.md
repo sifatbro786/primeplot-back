@@ -965,6 +965,7 @@ Wrong state → `409 CHEQUE_STATE_CONFLICT { status }`.
 - `POST /auth/password/forgot` body: `{ identifier }` (or `{ email }`). Phone → reset link **by SMS** to that number; e-mail → by e-mail. Invited (never activated) logins get a fresh setup link instead. Always `202`.
 - `POST /auth/token/inspect` → `{ valid, email (masked) | null, phone (masked) | null, role: 'client'|'staff', expiresAt }` — the setup page sends clients to `/portal`.
 - Client logins have `role: 'client'`, permissions `portal:access` + `media:upload_private`, and may have **no e-mail** (`email: null`).
+- `PATCH /auth/me` for a client login: `name` / `phone` changes → `403 CLIENT_PROFILE_LOCKED` (they belong to the customer record — profile request or the office); `locale` still works. `PATCH /portal/me { locale }` now also sets the login's `locale` (one language setting for the client). *(F6.1)*
 - `GET /users` lists **staff only** unless `?role=client`. `POST/PATCH /users` accept staff roles only; a client login never changes role (`403 CLIENT_ROLE_LOCKED`).
 - Upgrade note: run `npm run db:indexes` once (users e-mail index became partial).
 
